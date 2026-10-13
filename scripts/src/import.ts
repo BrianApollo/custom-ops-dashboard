@@ -9,6 +9,7 @@
 // are upserted by id, link tables are replaced whole, and rows that are gone
 // from Airtable are deleted from D1. The raw export and the report are written
 // to exports/<run>/, which is never committed because it holds credentials.
+import { createHash } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { TABLES, type FieldMapping, type TableMapping } from '@ops/shared'
 import { AwsClient } from 'aws4fetch'
@@ -185,6 +186,7 @@ interface AttachmentRow {
 const data = new Map<string, TableData>()
 const junctions = new Map<string, { columns: string[]; rows: unknown[][]; fromA: number; fromB: number }>()
 const attachments: AttachmentRow[] = []
+const usedAttachmentIds = new Set<string>()
 const fkStats: { column: string; zero: number; one: number; many: number; dangling: number }[] = []
 const selectStats: { column: string; counts: Map<string, number> }[] = []
 let largest = { where: '', bytes: 0 }
@@ -294,8 +296,15 @@ function transform(live: AirtableTable[]) {
           const files = (record.fields[name] as Record<string, unknown>[] | undefined) ?? []
           files.forEach((file, position) => {
             const filename = String(file.filename ?? file.id).replace(/[/\\]/g, '_')
+            // Airtable lets one attachment sit in two fields. The first use keeps
+            // Airtable's id; a further use gets an id worked out from where it
+            // sits, the same on every run, and shares the one stored file.
+            const place = `${file.id}|${table.d1Table}|${record.id}|${f.field}|${position}`
+            const repeated = usedAttachmentIds.has(file.id as string)
+            usedAttachmentIds.add(file.id as string)
+            if (repeated) notes.push(`${where(name)}: attachment ${file.id} is also used elsewhere; stored as a second row sharing the same file`)
             attachments.push({
-              id: file.id as string,
+              id: repeated ? `att${createHash('sha256').update(place).digest('hex').slice(0, 14)}` : (file.id as string),
               table_name: table.d1Table,
               record_id: record.id,
               field_name: f.field,

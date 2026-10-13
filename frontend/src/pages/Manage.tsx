@@ -119,6 +119,8 @@ const dollars = (amount: number) => amount.toLocaleString(undefined, { style: 'c
 const title = (status: string) => status.charAt(0) + status.slice(1).toLowerCase().replaceAll('_', ' ')
 const spend = (campaign: Campaign) => Number(campaign.insights?.data?.[0]?.spend ?? 0)
 
+const budgetCents = (campaign: Campaign) => Number(campaign.daily_budget) || Number(campaign.lifetime_budget) || 0
+
 function budget(campaign: { daily_budget?: string; lifetime_budget?: string }) {
   if (Number(campaign.daily_budget)) return `${dollars(Number(campaign.daily_budget) / 100)} / day`
   if (Number(campaign.lifetime_budget)) return `${dollars(Number(campaign.lifetime_budget) / 100)} lifetime`
@@ -267,8 +269,6 @@ export function Manage() {
         (account === ALL || campaign.adAccountId === account) &&
         (campaign.name.toLowerCase().includes(term) || campaign.id.includes(term)),
     )
-    // biggest spenders first
-    .sort((a, b) => spend(b) - spend(a))
   // the review covers the ticked campaigns, or every one shown when none is ticked
   const toReview = selected.size ? rows.filter((campaign) => selected.has(campaign.id)) : rows
 
@@ -315,6 +315,7 @@ export function Manage() {
   const columns: Column<Campaign>[] = [
     {
       header: 'Campaign',
+      sort: (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }),
       cell: (campaign) => (
         <>
           {campaign.name}
@@ -322,12 +323,14 @@ export function Manage() {
         </>
       ),
     },
-    { header: 'Ad account', cell: (campaign) => campaign.adAccountName },
-    { header: 'Budget', align: 'right', cell: (campaign) => <span className="tabular-nums">{budget(campaign)}</span> },
-    { header: 'Spend', align: 'right', cell: (campaign) => <span className="tabular-nums">{dollars(spend(campaign))}</span> },
+    { header: 'Ad account', sort: (a, b) => a.adAccountName.localeCompare(b.adAccountName, undefined, { numeric: true }), cell: (campaign) => campaign.adAccountName },
+    { header: 'Budget', align: 'right', sort: (a, b) => budgetCents(a) - budgetCents(b), cell: (campaign) => <span className="tabular-nums">{budget(campaign)}</span> },
+    { header: 'Spend', align: 'right', sort: (a, b) => spend(a) - spend(b), cell: (campaign) => <span className="tabular-nums">{dollars(spend(campaign))}</span> },
     {
       header: 'ROAS',
       align: 'right',
+      // campaigns with no figure sort below every figure
+      sort: (a, b) => (fetched?.values.get(a.id) ?? -1) - (fetched?.values.get(b.id) ?? -1),
       cell: (campaign) => {
         const value = fetched?.values.get(campaign.id)
         return typeof value === 'number' ? (
@@ -337,7 +340,7 @@ export function Manage() {
         )
       },
     },
-    { header: 'Status', cell: (campaign) => <StatusBadge status={title(campaign.status)} /> },
+    { header: 'Status', sort: (a, b) => a.status.localeCompare(b.status), cell: (campaign) => <StatusBadge status={title(campaign.status)} /> },
     {
       header: 'Actions',
       align: 'right',
@@ -473,8 +476,10 @@ export function Manage() {
       </p>
       <div className="mt-2">
         <DataTable
-          // new filters start again from page one
-          key={`${profile}|${range}|${status}|${account}|${term}`}
+          // new filters start again from page one; the chosen sort stays
+          resetKey={`${profile}|${range}|${status}|${account}|${term}`}
+          // biggest spenders first, until a heading is clicked
+          defaultSort={{ column: 'Spend', descending: true }}
           columns={columns}
           rows={rows}
           rowKey={(campaign) => campaign.id}

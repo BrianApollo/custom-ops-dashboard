@@ -1,6 +1,6 @@
-import { Check, ChevronLeft, ChevronRight, Minus } from 'lucide-react'
+import { ArrowDown, ArrowUp, Check, ChevronLeft, ChevronRight, ChevronsUpDown, Minus } from 'lucide-react'
 import { Checkbox } from 'radix-ui'
-import { Fragment, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useState, type ReactNode } from 'react'
 import { button, Select } from './ui'
 
 export interface Column<T> {
@@ -11,6 +11,8 @@ export interface Column<T> {
   group?: string
   // needed only when two columns have the same header, e.g. `Available` under two groups
   key?: string
+  // Makes the heading a button that sorts by this column: how two rows compare, smallest first
+  sort?: (a: T, b: T) => number
 }
 
 interface Props<T> {
@@ -29,6 +31,10 @@ interface Props<T> {
   // the selected row keys; passing both adds the checkbox column
   selected?: Set<string>
   onSelectedChange?: (selected: Set<string>) => void
+  // the column (its key, or its header) the table is sorted by at first
+  defaultSort?: { column: string; descending?: boolean }
+  // when this changes the table goes back to page one, keeping its sort, e.g. the filters as one string
+  resetKey?: string
 }
 
 const PAGE_SIZES = [25, 50, 100]
@@ -39,10 +45,40 @@ export const checkbox =
 // The one table every list in the dashboard uses. It pages on the client:
 // lists arrive whole from the API, so paging here costs no extra requests.
 // Give it a `key` that changes with the filters to send it back to page one.
-export function DataTable<T>({ columns, rows, rowKey, empty, emptyIsError, expand, expandCell, selected, onSelectedChange }: Props<T>) {
+export function DataTable<T>(props: Props<T>) {
+  const { columns, rowKey, empty, emptyIsError, expand, expandCell, selected, onSelectedChange, resetKey } = props
   const [pageSize, setPageSize] = useState(PAGE_SIZES[0])
   const [wantedPage, setWantedPage] = useState(0)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [sort, setSort] = useState(props.defaultSort)
+
+  useEffect(() => setWantedPage(0), [resetKey])
+
+  const keyOf = (column: Column<T>) => column.key ?? column.header
+  const compare = columns.find((column) => keyOf(column) === sort?.column)?.sort
+  const rows = compare ? [...props.rows].sort((a, b) => (sort?.descending ? compare(b, a) : compare(a, b))) : props.rows
+
+  // The text of a column's heading, as a button when the column can be sorted.
+  // Clicking the sorted column turns it round; clicking another starts it smallest first.
+  function heading(column: Column<T>) {
+    if (!column.sort) return column.header
+    const active = sort?.column === keyOf(column)
+    const Icon = !active ? ChevronsUpDown : sort?.descending ? ArrowDown : ArrowUp
+    return (
+      <button
+        onClick={() => {
+          setSort({ column: keyOf(column), descending: active ? !sort?.descending : false })
+          setWantedPage(0)
+        }}
+        className={`inline-flex items-center gap-1 rounded tracking-wide uppercase hover:text-neutral-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 ${active ? 'text-neutral-900' : ''}`}
+      >
+        {column.header}
+        <Icon className={`size-3.5 ${active ? '' : 'text-neutral-400'}`} />
+      </button>
+    )
+  }
+  const sorted = (column: Column<T>) =>
+    sort?.column === keyOf(column) && column.sort ? (sort.descending ? 'descending' : 'ascending') : undefined
 
   const pages = Math.max(1, Math.ceil(rows.length / pageSize))
   // rows can shrink under the current page, e.g. after a refresh
@@ -52,7 +88,6 @@ export function DataTable<T>({ columns, rows, rowKey, empty, emptyIsError, expan
   const span = columns.length + (expand ? 1 : 0) + (selectable ? 1 : 0)
   const grouped = columns.some((column) => column.group)
   const headerRows = grouped ? 2 : 1
-  const keyOf = (column: Column<T>) => column.key ?? column.header
 
   const visibleKeys = visible.map(rowKey)
   const chosen = visibleKeys.filter((key) => selected?.has(key)).length
@@ -90,8 +125,13 @@ export function DataTable<T>({ columns, rows, rowKey, empty, emptyIsError, expan
               {columns.map((column, i) => {
                 if (!column.group) {
                   return (
-                    <th key={keyOf(column)} rowSpan={headerRows} className={`px-4 py-2.5 font-medium ${column.align === 'right' ? 'text-right' : ''}`}>
-                      {column.header}
+                    <th
+                      key={keyOf(column)}
+                      rowSpan={headerRows}
+                      aria-sort={sorted(column)}
+                      className={`px-4 py-2.5 font-medium ${column.align === 'right' ? 'text-right' : ''}`}
+                    >
+                      {heading(column)}
                     </th>
                   )
                 }
@@ -116,9 +156,10 @@ export function DataTable<T>({ columns, rows, rowKey, empty, emptyIsError, expan
                     column.group && (
                       <th
                         key={keyOf(column)}
+                        aria-sort={sorted(column)}
                         className={`px-4 py-2 font-medium ${column.align === 'right' ? 'text-right' : ''} ${columns[i - 1]?.group === column.group ? '' : 'border-l border-neutral-200'}`}
                       >
-                        {column.header}
+                        {heading(column)}
                       </th>
                     ),
                 )}
