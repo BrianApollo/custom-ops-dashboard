@@ -1,0 +1,35 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "ops-dashboard-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  // run the Worker next to the database instead of next to the visitor
+  "placement": { "mode": "smart" },
+  // the dashboard, built from frontend/. Cloudflare serves the files itself;
+  // only the paths below reach the Worker, and any other unknown path gets
+  // index.html so client-side routes survive a reload
+  "assets": {
+    "directory": "../frontend/dist",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/health"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "${D1_DATABASE_NAME}",
+      "database_id": "${D1_DATABASE_ID}",
+      "migrations_dir": "migrations",
+      // `wrangler dev` talks to the real database; there is no local copy
+      "remote": true
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "BUCKET",
+      "bucket_name": "${R2_BUCKET_NAME}",
+      // `wrangler dev` uses the real bucket, like the database
+      "remote": true
+    }
+  ]
+}

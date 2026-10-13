@@ -1,0 +1,7 @@
+@import 'tailwindcss';
+/* self-hosted, so the dashboard makes no request to a font CDN */
+@import '@fontsource-variable/inter';
+
+@theme {
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+}

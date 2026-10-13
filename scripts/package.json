@@ -1,0 +1,18 @@
+{
+  "name": "@ops/scripts",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "import": "tsx --env-file=../backend/.env src/import.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ops/shared": "*",
+    "aws4fetch": "^1.0.20",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "tsx": "^4.23.15"
+  }
+}

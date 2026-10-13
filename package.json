@@ -1,0 +1,21 @@
+{
+  "name": "ops-dashboard",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "frontend",
+    "scripts",
+    "shared"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @ops/backend",
+    "dev:frontend": "npm run dev -w @ops/frontend",
+    "build": "npm run build -w @ops/frontend",
+    "deploy": "npm run deploy -w @ops/backend",
+    "import": "npm run import -w @ops/scripts --",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2"
+  }
+}
