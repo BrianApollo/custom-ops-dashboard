@@ -15,7 +15,7 @@ import {
 } from 'lucide-react'
 import { DropdownMenu } from 'radix-ui'
 import { useState } from 'react'
-import { Navigate, NavLink, Outlet, useLocation, useMatch } from 'react-router'
+import { Navigate, NavLink, Outlet, useLocation } from 'react-router'
 import { useAuth } from '../auth'
 import { WorkspaceProvider } from '../data'
 import { Tip } from './ui'
@@ -39,8 +39,6 @@ const COLLAPSED_KEY ='ops.sidebar.collapsed'
 export function Shell() {
   const { user, logout } = useAuth()
   const location = useLocation()
-  // the launcher's three panels use the whole window; other pages keep a readable width
-  const wide = useMatch('/campaigns/:id/launch') !== null
   const [collapsed, setCollapsed] = useState(
     () => (localStorage.getItem(COLLAPSED_KEY) ?? String(window.innerWidth < 900)) === 'true',
   )
@@ -155,7 +153,8 @@ export function Shell() {
       </aside>
 
       <main className="min-w-0 flex-1">
-        <div className={`mx-auto px-6 py-6 ${wide ? '' : 'max-w-7xl'}`}>
+        {/* every page uses the full width beside the sidebar */}
+        <div className="px-6 py-6">
           <WorkspaceProvider>
             <Outlet />
           </WorkspaceProvider>

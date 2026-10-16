@@ -261,10 +261,14 @@ export function Combobox({ value, options, placeholder, disabled, noun, onValueC
                 onMouseMove={() => setActive(index)}
                 className={`flex w-full items-center justify-between gap-3 rounded px-2 py-1.5 text-left ${index === active ? 'bg-neutral-100' : ''}`}
               >
-                <span className="flex min-w-0 items-center gap-2">
-                  <span className="truncate">{option.label}</span>
-                  {option.badge && <StatusBadge status={option.badge} />}
-                  {option.detail && <span className="truncate text-xs text-neutral-500 tabular-nums">{option.detail}</span>}
+                {/* the name with its tag on the first line, the quieter detail (an id) under it */}
+                <span className="min-w-0">
+                  <span className="flex min-w-0 items-start gap-2">
+                    {/* long names (RedTrack campaigns, say) get a second line before they are cut */}
+                    <span className="line-clamp-2 wrap-break-word">{option.label}</span>
+                    {option.badge && <StatusBadge status={option.badge} />}
+                  </span>
+                  {option.detail && <span className="block truncate text-xs text-neutral-400 tabular-nums">{option.detail}</span>}
                 </span>
                 {option.value === value && <Check className="size-4 shrink-0 text-blue-700" />}
               </button>

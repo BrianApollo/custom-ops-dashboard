@@ -12,10 +12,12 @@
     "db:migrate": "npm run config && wrangler d1 migrations apply DB --remote"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.133.0",
     "@ops/shared": "*",
     "aws4fetch": "^1.0.20",
     "drizzle-orm": "^0.45.4",
     "express": "^5.2.1",
+    "openai": "^7.33.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {

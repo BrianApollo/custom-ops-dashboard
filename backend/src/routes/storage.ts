@@ -6,7 +6,7 @@ import { settings } from '../env'
 import { batch, nowIso, rows, sql } from '../lib/d1'
 import { ApiError, forbidden, invalid, notFound } from '../lib/errors'
 import { recordId, RECORD_ID } from '../lib/ids'
-import { presignUpload, publicUrl } from '../lib/storage'
+import { keyFromUrl, presignUpload, publicUrl } from '../lib/storage'
 import { ruleFor } from '../permissions'
 
 // Files live in one R2 bucket. The browser uploads straight to R2 through a
@@ -130,6 +130,15 @@ storageRouter.delete('/cloudflare/images/:id', async (req, res) => {
   res.json(result === 'deleted' ? { success: true } : { success: true, alreadyDeleted: true })
 })
 
+// The bucket key behind a link, or null when the file is not in our bucket
+function ownKey(link: string) {
+  try {
+    return keyFromUrl(link, 'link')
+  } catch {
+    return null
+  }
+}
+
 const EXTENSIONS: Record<string, string> = {
   'image/png': 'png',
   'image/jpeg': 'jpg',
@@ -207,9 +216,12 @@ storageRouter.post('/temp-images/:id/approve', async (req, res) => {
     ])
 
     if (inserted.results.length) {
-      // the generated image is served from Cloudflare Images until now
+      // older generated images are served from Cloudflare Images until now;
+      // newer ones sit in the bucket under a temporary name
       const cloudflareId = link.includes('imagedelivery.net/') ? new URL(link).pathname.split('/')[2] : null
       const removed = cloudflareId ? await deleteCloudflareImage(cloudflareId).catch(() => null) : null
+      const tempKey = cloudflareId ? null : ownKey(link)
+      if (tempKey && tempKey !== key) await settings.BUCKET.delete(tempKey).catch(() => undefined)
       res.json({ image: projection.decode(selected.results[0]), cloudflareImageDeleted: removed !== null })
       return
     }

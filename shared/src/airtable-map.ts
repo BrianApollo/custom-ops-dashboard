@@ -217,6 +217,7 @@ export const TABLES: TableMapping[] = [
     fields: {
       Name: text('name'),
       'Profile Record': fk('profile_id', 'profiles'),
+      'Profile Name (from Profile Record)': computed,
     },
   },
   {

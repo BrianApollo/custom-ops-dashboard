@@ -3,6 +3,9 @@
 //   npm run import                      export from Airtable, load, verify
 //   npm run import -- --from <dir>      reuse a saved export instead of calling Airtable
 //   npm run import -- --check-only      export and validate, load nothing
+//   npm run import -- --diff            export and compare with D1, change nothing
+//   npm run import -- --tables videos,video_scripts [--dry-run]
+//                                       add and update those tables only; delete nothing
 //   npm run import -- --skip-attachments
 //
 // Airtable stays the source until cutover, so this is safe to run again: rows
@@ -640,6 +643,197 @@ async function report(loaded: boolean) {
   writeFileSync(inRun('verification-report.md'), out.join('\n'))
 }
 
+// ---------------------------------------------------------------- diff
+
+// Compares the export with what D1 holds now, without changing anything, so a
+// re-import can be judged before it runs. A row edited in the dashboard since
+// the last import shows up as "changed" too: the import would overwrite it.
+async function diff() {
+  const out: string[] = [`# Airtable vs D1`, '', `Run at ${importTime}. Base \`${env.AIRTABLE_BASE_ID}\`. Nothing was written.`, '']
+  const totals = { added: 0, changed: 0, removed: 0 }
+  const tableLines = ['| Table | In Airtable | In D1 | New in Airtable | Changed | Only in D1 (an import deletes these) |', '|---|---|---|---|---|---|']
+  const details: string[] = []
+
+  for (const { table, records, baseColumns, baseRows, fkColumns, fkRows } of data.values()) {
+    const columns = [...baseColumns.filter((c) => c !== 'updated_at'), ...fkColumns.slice(1)]
+    const expected = new Map(
+      records.map((r, i) => [r.id, Object.fromEntries([
+        ...baseColumns.map((c, n): [string, unknown] => [c, baseRows[i][n]]),
+        ...fkColumns.slice(1).map((c, n): [string, unknown] => [c, fkRows[i][n + 1]]),
+      ])]),
+    )
+    const actual = new Map((await query(`SELECT ${columns.join(', ')}, updated_at FROM ${table.d1Table}`)).map((row) => [row.id as string, row]))
+
+    const added = [...expected.keys()].filter((id) => !actual.has(id))
+    const removed = [...actual.keys()].filter((id) => !expected.has(id))
+    const changed: { id: string; columns: string[]; updatedAt: unknown }[] = []
+    for (const [id, want] of expected) {
+      const have = actual.get(id)
+      if (!have) continue
+      const differing = columns.filter((c) => c !== 'id' && !sameNumber(want[c] ?? null, have[c] ?? null))
+      if (differing.length) changed.push({ id, columns: differing, updatedAt: have.updated_at })
+    }
+    totals.added += added.length
+    totals.changed += changed.length
+    totals.removed += removed.length
+    tableLines.push(`| ${table.d1Table} | ${expected.size} | ${actual.size} | ${added.length} | ${changed.length} | ${removed.length} |`)
+
+    if (added.length || changed.length || removed.length) {
+      details.push(`### ${table.d1Table}`, '')
+      if (added.length) details.push(`- New in Airtable: ${added.slice(0, 20).join(', ')}${added.length > 20 ? ` and ${added.length - 20} more` : ''}`)
+      if (changed.length) {
+        const byColumn = new Map<string, number>()
+        for (const c of changed) for (const column of c.columns) byColumn.set(column, (byColumn.get(column) ?? 0) + 1)
+        details.push(`- Changed columns: ${[...byColumn].sort((a, b) => b[1] - a[1]).map(([c, n]) => `${c} (${n})`).join(', ')}`)
+        details.push(...changed.slice(0, 10).map((c) => `  - ${c.id}: ${c.columns.map((col) => `${col} ${show(col, actual.get(c.id)?.[col])} -> ${show(col, expected.get(c.id)?.[col])}`).join('; ')} (D1 last updated ${c.updatedAt})`))
+        if (changed.length > 10) details.push(`  - and ${changed.length - 10} more`)
+      }
+      if (removed.length) {
+        details.push(`- Only in D1: ${removed.slice(0, 20).map((id) => `${id} (updated ${actual.get(id)?.updated_at})`).join(', ')}${removed.length > 20 ? ` and ${removed.length - 20} more` : ''}`)
+      }
+      details.push('')
+    }
+  }
+
+  const linkLines = ['| Link table | Pairs in Airtable | Pairs in D1 | New | Gone |', '|---|---|---|---|---|']
+  for (const [name, junction] of junctions) {
+    const [a, b] = junction.columns
+    const want = new Set(junction.rows.map((r) => `${r[0]}|${r[1]}`))
+    const have = new Set((await query(`SELECT ${a} AS a, ${b} AS b FROM ${name}`)).map((r) => `${r.a}|${r.b}`))
+    const added = [...want].filter((p) => !have.has(p)).length
+    const gone = [...have].filter((p) => !want.has(p)).length
+    if (want.size || have.size) linkLines.push(`| ${name} | ${want.size} | ${have.size} | ${added} | ${gone} |`)
+    totals.added += added
+    totals.removed += gone
+  }
+
+  const haveFiles = new Set((await query('SELECT id FROM attachments')).map((r) => r.id as string))
+  const newFiles = attachments.filter((f) => !haveFiles.has(f.id)).length
+
+  const verdict =
+    totals.added || totals.changed || totals.removed || newFiles
+      ? `D1 is behind or differs: ${totals.added} new, ${totals.changed} changed, ${totals.removed} only in D1, ${newFiles} new files.`
+      : 'D1 already matches Airtable. Nothing to import.'
+  out.push(`**${verdict}**`, '', '## Tables', '', ...tableLines, '', '## Link tables', '', ...linkLines, '', `## Attachments`, '', `${attachments.length} in Airtable, ${haveFiles.size} in D1, ${newFiles} new.`, '', '## Details', '', ...(details.length ? details : ['No differences.']))
+  writeFileSync(inRun('diff-report.md'), out.join('\n'))
+  console.log(verdict)
+  console.log(`Report: ${inRun('diff-report.md')}`)
+}
+
+// ---------------------------------------------------------------- sync
+
+// Brings chosen tables up to date without the clean slate of a full import:
+// new Airtable records are added and records changed in Airtable are updated,
+// but nothing is deleted, and a row edited in the dashboard since the last
+// import is left alone. New links are added; links gone from Airtable stay.
+// Everything is checked before the first write; with --dry-run nothing is written.
+async function sync(names: string[]) {
+  const out: string[] = [`# Sync of ${names.join(', ')}`, '', `Run at ${importTime}. Base \`${env.AIRTABLE_BASE_ID}\`.${flag('--dry-run') ? ' Dry run: nothing was written.' : ''}`, '']
+  const unknown = names.filter((n) => !data.has(n))
+  if (unknown.length) throw new Error(`Unknown table(s): ${unknown.join(', ')}`)
+  const syncing = new Set(names)
+  const inD1 = new Map<string, Set<string>>()
+  const idsIn = async (table: string) =>
+    inD1.get(table) ?? inD1.set(table, new Set((await query(`SELECT id FROM ${table}`)).map((r) => r.id as string))).get(table)!
+
+  const plans: { entry: TableData; baseRows: unknown[][]; fkRows: unknown[][] }[] = []
+  for (const name of names) {
+    const entry = data.get(name)!
+    const { table, records, baseColumns, baseRows, fkColumns, fkRows } = entry
+    const columns = [...baseColumns.filter((c) => c !== 'updated_at'), ...fkColumns.slice(1)]
+    const actual = new Map((await query(`SELECT ${columns.join(', ')}, updated_at FROM ${name}`)).map((row) => [row.id as string, row]))
+    // every row of an import gets the same updated_at, so the most common one is the last import
+    const stamps = new Map<unknown, number>()
+    for (const row of actual.values()) stamps.set(row.updated_at, (stamps.get(row.updated_at) ?? 0) + 1)
+    const lastImport = [...stamps].sort((a, b) => b[1] - a[1])[0]?.[0]
+
+    const added: number[] = []
+    const changed: number[] = []
+    const kept: string[] = []
+    records.forEach((record, i) => {
+      const have = actual.get(record.id)
+      if (!have) return void added.push(i)
+      const want = Object.fromEntries([
+        ...baseColumns.map((c, n): [string, unknown] => [c, baseRows[i][n]]),
+        ...fkColumns.slice(1).map((c, n): [string, unknown] => [c, fkRows[i][n + 1]]),
+      ])
+      const differing = columns.filter((c) => c !== 'id' && !sameNumber(want[c] ?? null, have[c] ?? null))
+      if (!differing.length) return
+      if (have.updated_at !== lastImport) kept.push(`${record.id} (${differing.join(', ')}; edited in the dashboard ${have.updated_at})`)
+      else changed.push(i)
+    })
+    const write = [...added, ...changed]
+    plans.push({ entry, baseRows: write.map((i) => baseRows[i]), fkRows: write.map((i) => fkRows[i]) })
+
+    // links to tables that are not synced must already be in D1
+    for (const [n, column] of fkColumns.entries()) {
+      if (n === 0) continue
+      const target = (Object.values(table.fields).find((f) => f.kind === 'fk' && f.column === column) as { target: string }).target
+      if (syncing.has(target)) continue
+      const there = await idsIn(target)
+      for (const i of write) {
+        const id = fkRows[i][n]
+        if (id && !there.has(id as string)) problems.push(`${name} ${records[i].id} ${column}: links to ${id}, which is not in D1's ${target} (sync that table too)`)
+      }
+    }
+    const onlyD1 = [...actual.keys()].filter((id) => !entry.records.some((r) => r.id === id))
+    out.push(`## ${name}`, '', `- Added: ${added.length}`, `- Updated from Airtable: ${changed.length}`)
+    if (kept.length) out.push(`- Edited in the dashboard, left as they are (${kept.length}): ${kept.join(', ')}`)
+    if (onlyD1.length) out.push(`- Only in D1, kept (${onlyD1.length}): ${onlyD1.join(', ')}`)
+    out.push('')
+    console.log(`  ${name}: ${added.length} to add, ${changed.length} to update, ${kept.length} dashboard edits kept, ${onlyD1.length} only in D1 kept`)
+  }
+
+  // link tables that involve a synced table: new pairs are added when both ends exist
+  const linkPlans: { name: string; columns: string[]; rows: unknown[][] }[] = []
+  for (const [name, junction] of junctions) {
+    const [selfColumn, otherColumn] = junction.columns
+    const tableOf = (column: string) =>
+      [...data.values()].flatMap(({ table }) => Object.values(table.fields)).find((f) => f.kind === 'junction' && f.table === name && f.selfColumn === column)
+    const selfTable = (tableOf(otherColumn) as Junction | undefined)?.target
+    const otherTable = (tableOf(selfColumn) as Junction | undefined)?.target
+    if (!selfTable || !otherTable || !(syncing.has(selfTable) || syncing.has(otherTable))) continue
+    const have = new Set((await query(`SELECT ${selfColumn} AS a, ${otherColumn} AS b FROM ${name}`)).map((r) => `${r.a}|${r.b}`))
+    const willExist = async (table: string, id: string) =>
+      (await idsIn(table)).has(id) || (syncing.has(table) && data.get(table)!.records.some((r) => r.id === id))
+    const rows: unknown[][] = []
+    const skipped: string[] = []
+    for (const row of junction.rows) {
+      if (have.has(`${row[0]}|${row[1]}`)) continue
+      if ((await willExist(selfTable, row[0] as string)) && (await willExist(otherTable, row[1] as string))) rows.push(row)
+      else skipped.push(`${row[0]}|${row[1]}`)
+    }
+    const want = new Set(junction.rows.map((r) => `${r[0]}|${r[1]}`))
+    const gone = [...have].filter((p) => !want.has(p))
+    linkPlans.push({ name, columns: junction.columns, rows })
+    out.push(`## ${name}`, '', `- Added: ${rows.length}`)
+    if (skipped.length) out.push(`- Not added, one end is not in D1 (${skipped.length}): ${skipped.join(', ')}`)
+    if (gone.length) out.push(`- Not in Airtable, kept (${gone.length}): ${gone.join(', ')}`)
+    out.push('')
+    console.log(`  ${name}: ${rows.length} to add, ${skipped.length} skipped (an end is not in D1), ${gone.length} only in D1 kept`)
+  }
+
+  // only the files of synced tables, and nothing is pruned
+  attachments.splice(0, attachments.length, ...attachments.filter((f) => syncing.has(f.table_name)))
+  const haveFiles = await idsIn('attachments')
+  const newFiles = attachments.filter((f) => !haveFiles.has(f.id)).length
+  console.log(`  attachments: ${newFiles} new`)
+
+  if (problems.length || flag('--dry-run')) {
+    if (problems.length) out.push('## Problems', '', ...problems.map((p) => `- ${p}`))
+    writeFileSync(inRun('sync-report.md'), out.join('\n'))
+    return
+  }
+  for (const { entry, baseRows } of plans) await send('upsert', entry.table.d1Table, entry.baseColumns, baseRows)
+  for (const { entry, fkRows } of plans) if (entry.fkColumns.length > 1) await send('update', entry.table.d1Table, entry.fkColumns, fkRows)
+  for (const { name, columns, rows } of linkPlans) await send('upsert', name, columns, rows)
+  if (newFiles && !flag('--skip-attachments')) {
+    await loadAttachments()
+    out.push(`## Attachments`, '', `${attachmentResult.copied} copied, ${attachmentResult.failed.length} failed`, ...attachmentResult.failed.map((f) => `- ${f}`))
+  }
+  writeFileSync(inRun('sync-report.md'), out.join('\n'))
+}
+
 // ---------------------------------------------------------------- run
 
 console.log(`Run folder: ${runDir}`)
@@ -648,7 +842,20 @@ if (option('--from')) checkSchema(schema)
 
 if (!problems.length) transform(schema)
 
-const shouldLoad = !problems.length && !flag('--check-only')
+if (flag('--diff')) {
+  if (problems.length) console.log(`Stopped with ${problems.length} problem(s): ${problems.slice(0, 5).join(' | ')}`)
+  else await diff()
+  process.exit(problems.length ? 1 : 0)
+}
+
+if (option('--tables')) {
+  if (!problems.length) await sync(option('--tables')!.split(','))
+  console.log(problems.length ? `Stopped with ${problems.length} problem(s); nothing was written: ${problems.slice(0, 5).join(' | ')}` : flag('--dry-run') ? 'Dry run; nothing was written.' : 'Sync finished.')
+  console.log(`Report: ${inRun('sync-report.md')}`)
+  process.exit(problems.length ? 1 : 0)
+}
+
+const shouldLoad =!problems.length && !flag('--check-only')
 if (shouldLoad) await load()
 await report(shouldLoad)
 

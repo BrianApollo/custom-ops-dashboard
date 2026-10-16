@@ -44,16 +44,21 @@ export async function credential(cred: unknown): Promise<Credential> {
   return { kind, recordId, client: new FacebookClient(row.token as string) }
 }
 
-// Runs Facebook work for a credential. When Facebook says a profile's token is
-// dead, the profile is marked so before the error goes back to the caller.
+// When Facebook says a profile's token is dead, the profile is marked so
+export async function noteTokenError(resolved: Credential, error: unknown) {
+  if (error instanceof ApiError && error.code === TOKEN_INVALID && resolved.kind === 'profile') {
+    await sql('UPDATE profiles SET token_valid = 0, updated_at = ? WHERE id = ?', nowIso(), resolved.recordId).run()
+  }
+}
+
+// Runs Facebook work for a credential, noting a dead token before the error
+// goes back to the caller
 export async function withCredential<T>(cred: unknown, work: (credential: Credential) => Promise<T>) {
   const resolved = await credential(cred)
   try {
     return await work(resolved)
   } catch (error) {
-    if (error instanceof ApiError && error.code === TOKEN_INVALID && resolved.kind === 'profile') {
-      await sql('UPDATE profiles SET token_valid = 0, updated_at = ? WHERE id = ?', nowIso(), resolved.recordId).run()
-    }
+    await noteTokenError(resolved, error)
     throw error
   }
 }

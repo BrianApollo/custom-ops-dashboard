@@ -1,6 +1,6 @@
 import { Check, ChevronLeft, ChevronRight, ImageOff, Plus, RefreshCw, Search, Trash2, WandSparkles, X } from 'lucide-react'
 import { AlertDialog, Checkbox, Dialog } from 'radix-ui'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '../auth'
 import { CreateImagesDialog } from '../components/CreateImagesDialog'
 import { checkbox, Pager } from '../components/DataTable'
@@ -27,6 +27,66 @@ interface Item {
   angles: string
   productId?: string
   created: string
+}
+
+// GET /image-generation/{jobId}; the shape is provisional on the server's side
+interface JobState {
+  status: string
+  output: { saved: number; failed: { image: number; error: string }[] } | null
+  error: { name: string; message: string } | null
+}
+
+interface Generation {
+  jobId: string
+  count: number
+  productName: string
+  state?: JobState
+  // finished one way or another; it is no longer asked about
+  over: boolean
+}
+
+const STILL_RUNNING = ['queued', 'running', 'waiting', 'paused']
+const POLL_MS = 10_000
+
+// One generation job: working, then what it made, or why it stopped
+function GenerationNotice({ generation, onDismiss }: { generation: Generation; onDismiss: () => void }) {
+  const { state, count, productName } = generation
+  const status = state?.status
+  const images = `${count} ${count === 1 ? 'image' : 'images'}`
+  let tone = 'bg-blue-50 text-blue-900'
+  let title = `Generating ${images} for ${productName}…`
+  let detail = 'They appear under New one by one as each is ready.'
+  if (status === 'complete') {
+    const failed = state?.output?.failed ?? []
+    tone = failed.length ? 'bg-amber-50 text-amber-900' : 'bg-emerald-50 text-emerald-900'
+    title = `${productName}: ${state?.output?.saved ?? 0} saved${failed.length ? `, ${failed.length} failed` : ''}.`
+    detail = failed.map((failure) => `Image ${failure.image}: ${failure.error}`).join(' · ')
+  } else if (status === 'errored') {
+    tone = 'bg-red-50 text-red-800'
+    title = `Generating ${images} for ${productName} failed.`
+    detail = state?.error?.message ?? ''
+  } else if (status === 'terminated') {
+    tone = 'bg-red-50 text-red-800'
+    title = `Generating ${images} for ${productName} was stopped.`
+    detail = 'Images finished before it stopped are under New.'
+  } else if (generation.over) {
+    tone = 'bg-amber-50 text-amber-900'
+    title = `Lost track of generating ${images} for ${productName}.`
+    detail = state?.error?.message ?? 'The server no longer reports on this job. Images it finished are under New.'
+  }
+  return (
+    <div role="status" className={`mt-3 flex items-start justify-between gap-3 rounded-md px-3 py-2 text-sm ${tone}`}>
+      <div className="min-w-0">
+        <p className="font-medium">{title}</p>
+        {detail && <p className="mt-0.5 break-words">{detail}</p>}
+      </div>
+      {generation.over && (
+        <button aria-label="Dismiss" onClick={onDismiss}>
+          <X className="size-4" />
+        </button>
+      )}
+    </div>
+  )
 }
 
 const isUrl = (value: string) => /^https?:\/\//.test(value)
@@ -66,6 +126,8 @@ export function ImagesTab({ product }: { product?: Product }) {
   // a running approve, delete or upload, and what the last one reported
   const [job, setJob] = useState<{ label: string; done: number; total: number } | null>(null)
   const [notice, setNotice] = useState<{ text: string; error?: boolean }>()
+  // image-generation jobs started from this page, newest first
+  const [generations, setGenerations] = useState<Generation[]>([])
   const fileInput = useRef<HTMLInputElement>(null)
 
   const isAdmin = user?.role === 'admin'
@@ -188,8 +250,37 @@ export function ImagesTab({ product }: { product?: Product }) {
     }
   }
 
+  const running = generations.filter((generation) => !generation.over)
+  const pollKey = running.map((generation) => generation.jobId).join(',')
+  useEffect(() => {
+    if (!pollKey) return
+    const timer = setInterval(async () => {
+      const answers = await Promise.all(
+        pollKey.split(',').map((jobId) =>
+          api<JobState>(`/image-generation/${jobId}`)
+            .then((state) => ({ jobId, state }))
+            .catch((err: Error) => ({ jobId, state: { status: 'unknown', output: null, error: { name: 'Error', message: err.message } } as JobState })),
+        ),
+      )
+      setGenerations((current) =>
+        current.map((generation) => {
+          const answer = answers.find((item) => item.jobId === generation.jobId)
+          return answer ? { ...generation, state: answer.state, over: !STILL_RUNNING.includes(answer.state.status) } : generation
+        }),
+      )
+      // finished images are added as New one by one, so the list is read again each time
+      generated.reload()
+      if (answers.some((answer) => !STILL_RUNNING.includes(answer.state.status))) void reloadCounts()
+    }, POLL_MS)
+    return () => clearInterval(timer)
+    // the list object changes on every render; the job ids are what the timer depends on
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pollKey])
+
   const busy = job !== null
   const needsProduct = product ? null : 'Select a product first'
+  // the server uses the product's logo as the reference picture, and refuses a product without one
+  const needsLogo = product && !product.logo ? 'Add a Product Logo in the Setup tab first; it is the reference picture for generation' : null
 
   return (
     <>
@@ -271,9 +362,9 @@ export function ImagesTab({ product }: { product?: Product }) {
                 </button>
               </span>
             </Tip>
-            <Tip label={needsProduct ?? 'Generate images for this product'}>
-              <span tabIndex={product ? undefined : 0}>
-                <button disabled={!product} onClick={() => setCreating(true)} className={button.secondary}>
+            <Tip label={needsProduct ?? needsLogo ?? 'Generate images for this product'}>
+              <span tabIndex={product && !needsLogo ? undefined : 0}>
+                <button disabled={!product || Boolean(needsLogo)} onClick={() => setCreating(true)} className={button.secondary}>
                   <WandSparkles className="size-4" />
                   Create
                 </button>
@@ -282,6 +373,14 @@ export function ImagesTab({ product }: { product?: Product }) {
           </>
         )}
       </div>
+
+      {generations.map((generation) => (
+        <GenerationNotice
+          key={generation.jobId}
+          generation={generation}
+          onDismiss={() => setGenerations((current) => current.filter((item) => item.jobId !== generation.jobId))}
+        />
+      ))}
 
       {job && (
         <p role="status" className="mt-3 rounded-md bg-blue-50 px-3 py-2 text-sm text-blue-900">
@@ -469,9 +568,9 @@ export function ImagesTab({ product }: { product?: Product }) {
         <CreateImagesDialog
           product={product}
           onClose={() => setCreating(false)}
-          onStarted={() => {
+          onStarted={(jobId, count) => {
             setCreating(false)
-            setNotice({ text: 'Image generation started. Refresh in a few minutes to see the new images under New.' })
+            setGenerations((current) => [{ jobId, count, productName: product.name, over: false }, ...current])
           }}
         />
       )}

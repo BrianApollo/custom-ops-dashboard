@@ -1,7 +1,7 @@
 import { Dialog, Label } from 'radix-ui'
 import { useState, type FormEvent } from 'react'
-import { useFetch, useRecords, type Product } from '../data'
-import { api, text, type ApiRecord, type Attachment } from '../lib/api'
+import { useRecords, type Product } from '../data'
+import { api, text } from '../lib/api'
 import { button, input, Select } from './ui'
 
 const MODELS = [
@@ -12,34 +12,17 @@ const SIZES = ['Auto', '21:9', '16:9', '3:2', '4:3', '5:4', '1:1', '4:5', '3:4',
 const FORMATS = ['png', 'jpeg', 'jpg'].map((value) => ({ value, label: value.toUpperCase() }))
 const MAX_IMAGES = 20
 
-// Standing instructions the generation workflow passes to its two prompt writers.
-// The wording is the workflow's contract, so it is kept exactly as it has always been sent.
-const GPT_INSTRUCTION = `In each image prompt, I want you to think of the best advertisements' wordings that's related to the image and put it in anywhere you think it's the best.
-Also, you can add some appropriate elements and design enhancements that are aligned with advertorial.`
-const CLAUDE_INSTRUCTION = `When generating image prompts, act as a world-class direct response marketer and creative director.
-Create powerful, scroll-stopping image concepts designed for maximum CTR and conversions.
-Each image prompt must:
-Include short, punchy, high-impact ad wording that naturally fits the scene.
-Add tasteful advertorial-friendly design elements (arrows, highlights, text bubbles, UI hints, overlays, before/after frames, etc.).
-Use authentic UGC or advertorial visual styles that feel real and believable.
-Highlight the product subtly but clearly.
-Emphasize benefits, transformations, curiosity, or emotional impact.
-Ensure the overall image looks like engaging content first, advertisement second.
-Provide a complete, structured prompt describing composition, scene, lighting, characters, styling, on-image text, and design enhancements.
-Generate prompts that would outperform 99% of ads on Facebook, Instagram, and TikTok.`
-
 interface Props {
   product: Product
   onClose: () => void
-  onStarted: () => void
+  // the job the server started and how many images it was asked for
+  onStarted: (jobId: string, count: number) => void
 }
 
-// Starts an image-generation job for one product. The job runs outside the
-// dashboard and adds its results as New images when it finishes.
+// Starts an image-generation job for one product. The job runs on the server
+// in the background and adds each image as a New image when it is ready.
 export function CreateImagesDialog({ product, onClose, onStarted }: Props) {
   const advertorials = useRecords('advertorials', { fields: 'Advertorial Name,Advertorial Text', 'where[Product]': product.id })
-  // the workflow is shown the product's first image as a reference
-  const details = useFetch<ApiRecord>(`/data/products/${product.id}`)
   const [model, setModel] = useState(MODELS[0].value)
   const [count, setCount] = useState('1')
   const [advertorialId, setAdvertorialId] = useState('')
@@ -60,9 +43,9 @@ export function CreateImagesDialog({ product, onClose, onStarted }: Props) {
     setBusy(true)
     setError(undefined)
     try {
-      // The server passes this body to the generation workflow unchanged, and reads
-      // `model` itself to pick which workflow gets it. The names are the workflow's own.
-      await api('/image-generation', {
+      // The server uses the product's logo as the reference image and its own
+      // standing instructions for the prompt writers.
+      const started = await api<{ jobId: string }>('/image-generation', {
         method: 'POST',
         body: {
           model,
@@ -72,13 +55,9 @@ export function CreateImagesDialog({ product, onClose, onStarted }: Props) {
           image_size: size,
           output_format: format,
           product_id: product.id,
-          image_url_1: (details.data?.fields['Product Images'] as Attachment[] | undefined)?.[0]?.url,
-          gpt_instruction: GPT_INSTRUCTION,
-          claude_instruction: CLAUDE_INSTRUCTION,
-          destination_path: 'file-path',
         },
       })
-      onStarted()
+      onStarted(started.jobId, number)
     } catch (err) {
       setError((err as Error).message)
       setBusy(false)
@@ -94,7 +73,7 @@ export function CreateImagesDialog({ product, onClose, onStarted }: Props) {
         <Dialog.Content className="fixed top-1/2 left-1/2 z-50 max-h-[90vh] w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-lg bg-white p-6 shadow-xl">
           <Dialog.Title className="text-base font-semibold">Create images</Dialog.Title>
           <Dialog.Description className="mt-1 text-sm text-neutral-600">
-            Generated images for {product.name} appear under New when the job finishes.
+            Generated images for {product.name} appear under New as each one is ready.
           </Dialog.Description>
           <form onSubmit={submit} className="mt-5 space-y-4">
             <div>

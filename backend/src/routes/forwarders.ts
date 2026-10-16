@@ -1,41 +1,15 @@
-import { Router, type Response } from 'express'
+import { Router } from 'express'
 import { currentUser } from '../auth/session'
 import { settings } from '../env'
 import { IN_LIST, list, rows, sql } from '../lib/d1'
 import { presetRange, RANGE_PRESETS } from '../lib/dates'
 import { ApiError, forbidden, invalid, notFound } from '../lib/errors'
-import { isAdmin, ruleFor } from '../permissions'
+import { isAdmin } from '../permissions'
 
 // Calls to outside services whose keys and URLs must stay on the server
 export const forwardersRouter = Router()
 
 const notConfigured = (name: string) => new ApiError(503, 'not_configured', `${name} is not set on the server`)
-
-async function relay(res: Response, upstream: globalThis.Response) {
-  res.status(upstream.status)
-  res.set('Content-Type', upstream.headers.get('Content-Type') ?? 'application/json')
-  res.send(await upstream.text())
-}
-
-// Starts an image-generation job. The body is passed on unchanged; its `model`
-// picks the webhook. The job later creates Temp Images rows by itself.
-forwardersRouter.post('/image-generation', async (req, res) => {
-  if (!ruleFor(currentUser(res).role, 'temp_images').create) throw forbidden()
-
-  const v2 = String(req.body?.model ?? '').toLowerCase() === 'nanobanana-2'
-  const name = v2 ? 'IMAGE_GENERATION_V2_WEBHOOK_URL' : 'IMAGE_GENERATION_WEBHOOK_URL'
-  const url = settings[name]
-  if (!url) throw notConfigured(name)
-
-  await relay(
-    res,
-    await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(req.body ?? {}),
-    }),
-  )
-})
 
 const REDTRACK = 'https://api.redtrack.io'
 

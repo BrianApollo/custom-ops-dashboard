@@ -3,7 +3,9 @@ import { authRouter } from './auth/routes'
 import { authenticate } from './auth/session'
 import { dataRouter } from './data/routes'
 import { settings } from './env'
+import { executorRouter } from './executor/routes'
 import { facebookRouter } from './facebook/routes'
+import { generationRouter } from './generation/routes'
 import { errorHandler, notFound } from './lib/errors'
 import { actionsRouter } from './routes/actions'
 import { campaignsRouter } from './routes/campaigns'
@@ -57,6 +59,7 @@ api.use('/campaigns', campaignsRouter)
 api.use(dashboardRouter)
 api.use(actionsRouter)
 api.use(forwardersRouter)
+api.use(generationRouter)
 api.use(storageRouter)
 api.use(scriptsRouter)
 api.use(videosRouter)
@@ -64,6 +67,7 @@ api.use(imagesRouter)
 api.use(overviewRouter)
 api.use('/import', importRouter)
 api.use('/facebook', facebookRouter)
+api.use('/executor', executorRouter)
 
 app.use(cors)
 // a whole link table arrives in one request during the Airtable import
