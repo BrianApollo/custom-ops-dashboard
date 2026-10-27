@@ -102,7 +102,7 @@ export function draftFrom(campaign: ApiRecord): Draft {
     redtrackId: text(campaign, 'RedTrack Campaign Id'),
     redtrackName: text(campaign, 'RedTrack Campaign Name'),
     // a stored value in another format is left for the user to set again
-    start: /^\d{4}-\d{2}-\d{2}$/.test(date) ? `${date}T${/^\d{2}:\d{2}/.test(time) ? time.slice(0, 5) : '12:00'}` : '',
+    start: /^\d{4}-\d{2}-\d{2}$/.test(date) ? `${date}T${/^\d{2}:\d{2}/.test(time) ? time.slice(0, 5) : '00:00'}` : '',
     budget: text(campaign, 'Budget'),
     countries: countriesFrom(text(campaign, 'Location Targeting')),
     callToAction: text(campaign, 'CTA') || CALLS_TO_ACTION[0],

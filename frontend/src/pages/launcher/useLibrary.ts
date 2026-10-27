@@ -24,8 +24,9 @@ const MAX_POLLS = 120
 // that are not, ahead of the launch. Videos are matched by name: a video's title on
 // Facebook is its name here.
 //
-// A video is uploaded only after a check has said it is missing, so pressing Upload
-// can never put a second copy of a video that is already there.
+// A video is uploaded only after a check has just said it is missing, so pressing Upload
+// can never put a second copy of a video that is already there. Upload makes that check
+// itself, so a failed upload, or a newly ticked set, can simply be uploaded again.
 export function useLibrary(cred: string, adAccountId: string) {
   const scope = `${cred}|${adAccountId}`
   const [store, setStore] = useState<{ scope: string; entries: Map<string, LibraryEntry> }>({ scope, entries: new Map() })
@@ -70,11 +71,29 @@ export function useLibrary(cred: string, adAccountId: string) {
     setBusy(undefined)
   }
 
-  // `videos` must already be known to be missing
+  // Reads the library for these videos first, then sends only the ones it is missing.
+  // Videos already there, or still processing there, are left alone.
   async function upload(videos: { name: string; url: string }[]) {
     if (!ready || busy || !videos.length) return
-    setBusy('uploading')
+    setBusy('checking')
     setError(undefined)
+    let found: Map<string, LibraryEntry>
+    try {
+      found = await look([...new Set(videos.map((video) => video.name))])
+      merge(found)
+    } catch (err) {
+      setError(`Could not read the ad account's library, so nothing was uploaded: ${(err as Error).message}`)
+      setBusy(undefined)
+      return
+    }
+    const missing = videos.filter((video) => found.get(video.name)?.state === 'missing')
+    if (missing.length) await send(missing)
+    setBusy(undefined)
+  }
+
+  // `videos` must be known to be missing from the library at this moment
+  async function send(videos: { name: string; url: string }[]) {
+    setBusy('uploading')
     polls.current = 0
     for (let i = 0; i < videos.length; i += UPLOAD_BATCH) {
       const batch = videos.slice(i, i + UPLOAD_BATCH)
@@ -110,7 +129,6 @@ export function useLibrary(cred: string, adAccountId: string) {
         }
       }
     }
-    setBusy(undefined)
   }
 
   // videos Facebook is still processing are asked about every few seconds

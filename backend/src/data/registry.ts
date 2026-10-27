@@ -88,7 +88,8 @@ const byKey = new Map<string, TableMeta>()
 const byName = new Map<string, TableMeta>()
 
 for (const table of TABLES) {
-  const fields = new Map<string, FieldMapping>(Object.entries(table.fields))
+  // ignored fields only tell the import what to skip; the API does not know them
+  const fields = new Map<string, FieldMapping>(Object.entries(table.fields).filter(([, f]) => f.kind !== 'ignored'))
   const primary = [...fields.values()].find((f) => f.kind === 'column')
   const apiOnly = API_ONLY[table.d1Table] ?? {}
   for (const name of Object.keys(apiOnly)) fields.set(name, { kind: 'computed' })

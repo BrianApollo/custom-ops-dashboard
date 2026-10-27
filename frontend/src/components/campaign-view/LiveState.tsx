@@ -59,8 +59,20 @@ function CopyButton({ value, label }: { value: string; label: string }) {
   )
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000
+// a pixel quiet for longer than this means purchase tracking is likely broken
+const PIXEL_QUIET_DAYS = 7
+
+const dateText = (time: string) => new Date(time).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+
+function firedText(time: string | null | undefined) {
+  if (!time) return { text: 'Never fired', stale: true }
+  const days = Math.floor((Date.now() - new Date(time).getTime()) / DAY_MS)
+  return { text: `Last fired ${days < 1 ? 'today' : days === 1 ? 'yesterday' : `${days} days ago`}`, stale: days > PIXEL_QUIET_DAYS }
+}
+
 // An ad account, page or pixel: Facebook's current one, or the one saved at launch when the token cannot read it
-function AssetTile({ label, ids, names, saved }: { label: string; ids: string[]; names?: Record<string, string>; saved?: Asset }) {
+function AssetTile({ label, ids, names, saved, note }: { label: string; ids: string[]; names?: Record<string, string>; saved?: Asset; note?: ReactNode }) {
   const live = ids.length > 0
   const id = live ? ids[0] : saved?.id
   const name = id ? names?.[id] || (saved?.id === id ? saved.name : '') : ''
@@ -86,7 +98,33 @@ function AssetTile({ label, ids, names, saved }: { label: string; ids: string[];
           <span className="text-neutral-400">Not available</span>
         )}
       </dd>
+      {note && <dd className="mt-0.5 text-xs">{note}</dd>}
     </div>
+  )
+}
+
+// What Facebook saved on the ad set: Europe's beneficiary and payer, any regional declaration, who it targets and when it starts
+function AdSetSettings({ adSet }: { adSet: FbAdSet }) {
+  const targeting = adSet.targeting
+  const countries = targeting?.geo_locations?.countries ?? []
+  const regional = adSet.regional_regulated_categories ?? []
+  const parts: ReactNode[] = [
+    adSet.dsa_beneficiary ? `Beneficiary ${adSet.dsa_beneficiary}` : <span className="text-amber-700">No beneficiary</span>,
+    adSet.dsa_payor ? `Payer ${adSet.dsa_payor}` : <span className="text-amber-700">No payer</span>,
+  ]
+  if (regional.length) parts.push(`Regional ${regional.map(title).join(', ')}`)
+  if (countries.length) parts.push(countries.join(', '))
+  if (targeting?.age_min || targeting?.age_max) parts.push(`Ages ${targeting?.age_min ?? 18}–${targeting?.age_max ?? 65}`)
+  if (adSet.start_time) parts.push(`Starts ${dateText(adSet.start_time)}`)
+  return (
+    <p className="text-xs text-neutral-500">
+      {parts.map((part, i) => (
+        <span key={i}>
+          {i > 0 && ' · '}
+          {part}
+        </span>
+      ))}
+    </p>
   )
 }
 
@@ -152,7 +190,7 @@ export function LiveState({ record, fbCampaignId, adAccountId, cred, productId, 
   const names = useFetch<Record<string, string>>(state && namedIds.length ? withCred('/facebook/names', cred, { ids: namedIds.join(',') }) : null)
   // Facebook often refuses a pixel's name when asked by id alone, so two more sources fill
   // the gaps: the ad account's own list of pixels, and the pages and pixels synced into our tables
-  const accountPixels = useFetch<{ id: string; name: string }[]>(
+  const accountPixels = useFetch<{ id: string; name: string; lastFiredTime?: string | null }[]>(
     state && adAccountId && pixelIds.length ? withCred(`/facebook/ad-accounts/${encodeURIComponent(adAccountId)}/pixels`, cred) : null,
   )
   const storedPixels = useRecords('pixels', { fields: 'Pixel ID,Pixel Name' })
@@ -196,6 +234,10 @@ export function LiveState({ record, fbCampaignId, adAccountId, cred, productId, 
   if (!state) return <p className="text-sm text-neutral-500">Loading from Facebook…</p>
 
   const { campaign, adSets, ads } = state
+  // the daily budget is meant to be the only spend control, so any cap is flagged
+  const spendCap = Number(campaign.spend_cap) || 0
+  const pixel = accountPixels.data?.find((p) => p.id === pixelIds[0])
+  const fired = pixel && firedText(pixel.lastFiredTime)
 
   // Runs one change, shows Facebook's message when it fails, and reads the campaign again either way
   async function act(key: string, work: () => Promise<string | void>) {
@@ -400,6 +442,7 @@ export function LiveState({ record, fbCampaignId, adAccountId, cred, productId, 
               Ad set <span className="tabular-nums">{adSet.id}</span> · {own.length} {own.length === 1 ? 'ad' : 'ads'} ·{' '}
               {own.filter((ad) => ad.status === 'ACTIVE').length} active · {budgetText(adSet, 'budget set on the campaign')}
             </p>
+            <AdSetSettings adSet={adSet} />
           </div>
           <StatusBadge status={title(adSet.status)} />
           <StatusButton status={adSet.status} noun="ad set" disabled={working} onClick={() => toggle('adsets', adSet)} />
@@ -443,6 +486,8 @@ export function LiveState({ record, fbCampaignId, adAccountId, cred, productId, 
             <p className="text-xs text-neutral-500">
               {adSets.length} {adSets.length === 1 ? 'ad set' : 'ad sets'} · {ads.length} {ads.length === 1 ? 'ad' : 'ads'} · {activeAds} active ·{' '}
               {pausedAds} paused{campaign.objective ? ` · ${title(campaign.objective)}` : ''}
+              {campaign.bid_strategy ? ` · ${title(campaign.bid_strategy)}` : ''} ·{' '}
+              {spendCap ? <span className="font-medium text-amber-700">Spend cap {dollars(spendCap / 100)}</span> : 'No spend cap'}
             </p>
           </div>
           {Number(campaign.daily_budget) ? (
@@ -457,7 +502,19 @@ export function LiveState({ record, fbCampaignId, adAccountId, cred, productId, 
         <dl className="mt-3 flex flex-wrap gap-3">
           <AssetTile label="Ad account" ids={adAccountId ? [adAccountId] : []} names={{ [adAccountId]: accountName }} />
           <AssetTile label="Facebook page" ids={pageIds} names={assetNames} saved={savedPage} />
-          <AssetTile label="Pixel" ids={pixelIds} names={assetNames} saved={savedPixel} />
+          <AssetTile
+            label="Pixel"
+            ids={pixelIds}
+            names={assetNames}
+            saved={savedPixel}
+            note={
+              fired && (
+                <span className={fired.stale ? 'text-amber-700' : 'text-neutral-500'} title={pixel?.lastFiredTime ? dateText(pixel.lastFiredTime) : undefined}>
+                  {fired.text}
+                </span>
+              )
+            }
+          />
         </dl>
         {reviewable.length > 0 && (
           <div className="mt-3 flex flex-wrap items-center gap-3 rounded-md bg-amber-50 px-3 py-2 text-amber-900">

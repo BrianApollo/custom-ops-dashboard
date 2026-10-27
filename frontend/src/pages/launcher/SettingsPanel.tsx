@@ -316,13 +316,26 @@ export function SettingsPanel({ draft, onChange, presets, assets, account }: Pro
             label={`Start date and time (${zone ?? 'ad account time'})`}
             hint={zone ? `In the ad account's time zone, ${zone}.` : "Read in the ad account's time zone; choose an ad account to see which."}
           >
-            <input
-              id="campaign-date"
-              type="datetime-local"
-              value={draft.start}
-              onChange={(e) => onChange({ start: e.target.value })}
-              className={`${input} mt-1.5`}
-            />
+            {/* One box holding a date and a time. A browser's datetime box keeps no value until both
+                are filled; here choosing a date is enough, and the time starts at midnight. */}
+            <div className="mt-1.5 flex h-9.5 items-center rounded-md border border-neutral-300 bg-white focus-within:border-blue-700 focus-within:ring-1 focus-within:ring-blue-700">
+              <input
+                id="campaign-date"
+                type="date"
+                value={draft.start.slice(0, 10)}
+                onChange={(e) => onChange({ start: e.target.value ? `${e.target.value}T${draft.start.slice(11, 16) || '00:00'}` : '' })}
+                className="h-full min-w-0 flex-1 rounded-l-md bg-transparent px-3 text-sm outline-none"
+              />
+              <input
+                type="time"
+                aria-label="Start time"
+                value={draft.start.slice(11, 16)}
+                disabled={!draft.start}
+                // a cleared time goes back to midnight rather than leaving the start half set
+                onChange={(e) => onChange({ start: `${draft.start.slice(0, 10)}T${e.target.value || '00:00'}` })}
+                className="h-full w-28 rounded-r-md border-l border-neutral-200 bg-transparent px-2 text-sm outline-none disabled:text-neutral-400"
+              />
+            </div>
           </Field>
           <Field id="campaign-budget" label="Daily budget (USD)">
             <input

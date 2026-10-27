@@ -78,7 +78,13 @@ launchRouter.post('/ad-accounts/:id/adsets', async (req, res) => {
     dsa_beneficiary: beneficiary,
     dsa_payor: a.payerName || beneficiary,
   }
-  if (countries.includes('SG')) params.regional_regulated_categories = ['SINGAPORE_UNIVERSAL']
+  // other regions (Australia, …) send their own declaration through
+  const categories = new Set(
+    a.regionalRegulatedCategories == null ? [] : texts(a.regionalRegulatedCategories, 'adSet.regionalRegulatedCategories'),
+  )
+  if (countries.includes('SG')) categories.add('SINGAPORE_UNIVERSAL')
+  if (categories.size) params.regional_regulated_categories = [...categories]
+  if (a.regionalRegulationIdentities != null) params.regional_regulation_identities = a.regionalRegulationIdentities
 
   res.json(
     await withCredential(body.cred, async ({ client }) => {

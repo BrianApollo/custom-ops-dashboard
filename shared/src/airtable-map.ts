@@ -23,6 +23,8 @@ export type FieldMapping =
   | { kind: 'attachment'; field: string }
   // formula, lookup, count or button: not stored
   | { kind: 'computed' }
+  // a field some base has that the dashboard does not use: not stored, whatever its type
+  | { kind: 'ignored' }
 
 export interface TableMapping {
   // tables are matched to a base by name; the same table has a different id in each base
@@ -43,6 +45,7 @@ const fk = (column: string, target: string): FieldMapping => ({ kind: 'fk', colu
 const inverse = (table: string, column: string): FieldMapping => ({ kind: 'inverse', table, column })
 const attachment = (field: string): FieldMapping => ({ kind: 'attachment', field })
 const computed: FieldMapping = { kind: 'computed' }
+const ignored: FieldMapping = { kind: 'ignored' }
 
 const junction = (
   table: string,
@@ -172,6 +175,8 @@ export const TABLES: TableMapping[] = [
       'Amount Spent': real('amount_spent'),
       'Last Synced': text('last_synced'),
       Hidden: checkbox('hidden'),
+      // USC base only
+      Notes: ignored,
       'Owner BM': fk('owner_bm_id', 'business_managers'),
       'Linked BM': junction('business_manager_ad_accounts', 'ad_account_id', 'business_manager_id', 'business_managers', 'b'),
     },
@@ -376,6 +381,8 @@ export const TABLES: TableMapping[] = [
       Notes: text('notes'),
       'Hook Number': integer('hook_number'),
       'Base Script Number': integer('base_script_number'),
+      // USC base only
+      'Videos copy': ignored,
       Videos: inverse('videos', 'script_id'),
       Angles: junction('angle_video_scripts', 'video_script_id', 'angle_id', 'angles', 'b'),
       'Editor (from Videos)': computed,
@@ -402,6 +409,11 @@ export const TABLES: TableMapping[] = [
       'First Upload At': text('first_upload_at'),
       'Last Upload At': text('creative_link_updated_at'),
       'Video Data': text('video_data'),
+      // USC base only
+      'Choosen Editors Best Video': ignored,
+      'Lauched Campaigns': ignored,
+      'Notes 2 copy': ignored,
+      'Notes 2': ignored,
       'Used In Campaign': junction('campaign_videos', 'video_id', 'campaign_id', 'campaigns', 'b'),
       Angles: junction('angle_videos', 'video_id', 'angle_id', 'angles', 'b'),
       // equals created_at

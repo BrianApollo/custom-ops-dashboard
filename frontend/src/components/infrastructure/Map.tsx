@@ -29,6 +29,10 @@ const EDGE_TONE: Record<Tone, string> = {
   neutral: 'border-l-neutral-300',
 }
 
+// How far down the chain each kind sits; a card's key starts with its kind (`profile:rec…`)
+const LAYER: Record<Kind, number> = { page: 0, profile: 1, bm: 2, adAccount: 3, pixel: 3 }
+const layer = (key: string) => LAYER[key.slice(0, key.indexOf(':')) as Kind]
+
 const GROUP_TONE: Record<Kind, string> = {
   adAccount: 'border-t-emerald-500',
   page: 'border-t-amber-500',
@@ -109,12 +113,31 @@ export function Map({ data, search, showHidden, selectedKey, onSelect }: Props) 
 
   // the card being pointed at, or failing that the one whose details are open
   const focus = pointed ?? selectedKey
+  // Everything the focused card reaches through the chain page → profile → business manager →
+  // ad account or pixel, in both directions but never doubling back: a profile picks out its
+  // pages, its business managers and every ad account and pixel those hold; an ad account picks
+  // out the business managers holding it, the profiles with access to them, and their pages.
   const related = useMemo(() => {
     if (!focus) return undefined
-    const keys = new Set([focus])
+    const neighbours = new globalThis.Map<string, string[]>()
     for (const edge of edges) {
-      if (edge.from === focus) keys.add(edge.to)
-      if (edge.to === focus) keys.add(edge.from)
+      neighbours.set(edge.from, [...(neighbours.get(edge.from) ?? []), edge.to])
+      neighbours.set(edge.to, [...(neighbours.get(edge.to) ?? []), edge.from])
+    }
+    const keys = new Set([focus])
+    for (const direction of [1, -1]) {
+      let frontier = [focus]
+      while (frontier.length) {
+        const next: string[] = []
+        for (const key of frontier) {
+          for (const other of neighbours.get(key) ?? []) {
+            if (Math.sign(layer(other) - layer(key)) !== direction || keys.has(other)) continue
+            keys.add(other)
+            next.push(other)
+          }
+        }
+        frontier = next
+      }
     }
     return keys
   }, [focus, edges])
@@ -167,7 +190,8 @@ export function Map({ data, search, showHidden, selectedKey, onSelect }: Props) 
         {/* the lines sit under the cards and take no clicks */}
         <svg width={size.width} height={size.height} className="pointer-events-none absolute top-0 left-0" aria-hidden>
           {lines.map((line) => {
-            const lit = focus !== undefined && (line.from === focus || line.to === focus)
+            // every line of the focused card's chain, not only the ones touching the card
+            const lit = related !== undefined && related.has(line.from) && related.has(line.to)
             return (
               <path
                 key={`${line.from}>${line.to}`}

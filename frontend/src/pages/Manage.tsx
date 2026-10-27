@@ -1,9 +1,11 @@
-import { ChartLine, Check, Clock, Copy, ListPlus, Minus, Plus, RefreshCw, Search, ShieldCheck, X } from 'lucide-react'
+import { ChartLine, Check, Clock, Copy, ExternalLink, ListPlus, Minus, Plus, RefreshCw, Search, ShieldCheck, X } from 'lucide-react'
+import { Link } from 'react-router'
 import { Dialog } from 'radix-ui'
 import { useState } from 'react'
 import { useAuth } from '../auth'
 import { AddAdsDialog } from '../components/campaign-view/AddAdsDialog'
 import { DataTable, type Column } from '../components/DataTable'
+import { BudgetCell } from '../components/manage/BudgetCell'
 import { LinkRedtrackDialog } from '../components/manage/LinkRedtrackDialog'
 import { button, Select, StatusBadge, Tip } from '../components/ui'
 import { useFetch, useRecords } from '../data'
@@ -121,13 +123,6 @@ const spend = (campaign: Campaign) => Number(campaign.insights?.data?.[0]?.spend
 
 const budgetCents = (campaign: Campaign) => Number(campaign.daily_budget) || Number(campaign.lifetime_budget) || 0
 
-function budget(campaign: { daily_budget?: string; lifetime_budget?: string }) {
-  if (Number(campaign.daily_budget)) return `${dollars(Number(campaign.daily_budget) / 100)} / day`
-  if (Number(campaign.lifetime_budget)) return `${dollars(Number(campaign.lifetime_budget) / 100)} lifetime`
-  // the budget is then set on the ad sets
-  return <span className="text-neutral-400">On ad sets</span>
-}
-
 const number = (value: number | undefined) => <span className="tabular-nums">{(value ?? 0).toLocaleString()}</span>
 const money = (value: number | undefined, digits = 2) => (
   <span className="tabular-nums">${(value ?? 0).toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits })}</span>
@@ -158,7 +153,8 @@ const MORE_DAY_COLUMNS: Column<ReportRow>[] = [
 ]
 
 // A campaign's RedTrack numbers for the last 30 days: the totals, then one row per day
-function CampaignDetail({ redtrackId }: { redtrackId: string }) {
+// `recordId` is our campaign record, which the campaign's own page is opened by
+function CampaignDetail({ redtrackId, recordId }: { redtrackId: string; recordId?: string }) {
   const [more, setMore] = useState(false)
   const report = useFetch<Report>(
     `/redtrack/report?${new URLSearchParams({
@@ -198,7 +194,15 @@ function CampaignDetail({ redtrackId }: { redtrackId: string }) {
           </div>
         ))}
       </dl>
-      <div className="mt-3 flex justify-end">
+      <div className="mt-3 flex items-center justify-between gap-3">
+        {recordId ? (
+          <Link to={`/campaigns/${recordId}`} className={`${button.primary} h-8`}>
+            <ExternalLink className="size-4" />
+            Open campaign details
+          </Link>
+        ) : (
+          <span />
+        )}
         <button onClick={() => setMore(!more)} aria-pressed={more} className={`${button.secondary} h-8`}>
           {more ? <Minus className="size-4" /> : <Plus className="size-4" />}
           {more ? 'Show Fewer Columns' : 'Show More Columns'}
@@ -324,7 +328,10 @@ export function Manage() {
       ),
     },
     { header: 'Ad account', sort: (a, b) => a.adAccountName.localeCompare(b.adAccountName, undefined, { numeric: true }), cell: (campaign) => campaign.adAccountName },
-    { header: 'Budget', align: 'right', sort: (a, b) => budgetCents(a) - budgetCents(b), cell: (campaign) => <span className="tabular-nums">{budget(campaign)}</span> },
+    { header: 'Budget', align: 'right', sort: (a, b) => budgetCents(a) - budgetCents(b), cell: (campaign) => (
+        <BudgetCell campaign={campaign} cred={cred} recordId={recordOf.get(campaign.id)?.id} onSaved={overview.reload} />
+      ),
+    },
     { header: 'Spend', align: 'right', sort: (a, b) => spend(a) - spend(b), cell: (campaign) => <span className="tabular-nums">{dollars(spend(campaign))}</span> },
     {
       header: 'ROAS',
@@ -485,7 +492,7 @@ export function Manage() {
           rowKey={(campaign) => campaign.id}
           empty={empty}
           emptyIsError={Boolean(overview.error)}
-          expand={(campaign) => <CampaignDetail redtrackId={redtrackOf(campaign)} />}
+          expand={(campaign) => <CampaignDetail redtrackId={redtrackOf(campaign)} recordId={recordOf.get(campaign.id)?.id} />}
           // a campaign with no RedTrack campaign has nothing to expand; it offers the link instead
           expandCell={(campaign) =>
             redtrackOf(campaign) ? undefined : (

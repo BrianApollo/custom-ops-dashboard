@@ -6,6 +6,7 @@
 //   npm run import -- --diff            export and compare with D1, change nothing
 //   npm run import -- --tables videos,video_scripts [--dry-run]
 //                                       add and update those tables only; delete nothing
+//   npm run import -- --first-link      keep the first record of a single link that holds several
 //   npm run import -- --skip-attachments
 //
 // Airtable stays the source until cutover, so this is safe to run again: rows
@@ -148,6 +149,7 @@ function checkSchema(live: AirtableTable[]) {
     const absent: string[] = []
     for (const [name, field] of Object.entries(table.fields)) {
       if (field.kind === 'column' && field.d1Only) continue
+      if (field.kind === 'ignored') continue
       const type = liveFields.get(name)
       if (!type) absent.push(name)
       else if (!expectedTypes(field).includes(type)) {
@@ -277,7 +279,8 @@ function transform(live: AirtableTable[]) {
           else if (linked.length === 1) stat.one++
           else {
             stat.many++
-            problems.push(`${where(name)}: holds ${linked.length} records but is stored as a single link`)
+            if (flag('--first-link')) notes.push(`${where(name)}: holds ${linked.length} records; only the first, ${linked[0]}, is stored`)
+            else problems.push(`${where(name)}: holds ${linked.length} records but is stored as a single link`)
           }
           if (linked[0] && !ids.get(f.target)!.has(linked[0])) {
             stat.dangling++

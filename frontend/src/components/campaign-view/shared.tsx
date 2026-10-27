@@ -12,6 +12,9 @@ export interface FbCampaign {
   lifetime_budget?: string
   objective?: string
   created_time?: string
+  // cents; absent or "0" when the campaign has no cap
+  spend_cap?: string
+  bid_strategy?: string
 }
 
 export interface FbAdSet {
@@ -22,6 +25,11 @@ export interface FbAdSet {
   lifetime_budget?: string
   optimization_goal?: string
   promoted_object?: { pixel_id?: string }
+  start_time?: string
+  targeting?: { geo_locations?: { countries?: string[] }; age_min?: number; age_max?: number }
+  dsa_beneficiary?: string
+  dsa_payor?: string
+  regional_regulated_categories?: string[]
 }
 
 export interface FbAd {

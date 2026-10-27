@@ -13,9 +13,12 @@ const DATE_PRESETS = [
 ]
 
 const AD_ACCOUNT_FIELDS = 'id,name,account_id,account_status,currency,timezone_name,business_name'
-export const CAMPAIGN_FIELDS = 'id,name,status,daily_budget,lifetime_budget,objective,created_time,updated_time'
+export const CAMPAIGN_FIELDS =
+  'id,name,status,daily_budget,lifetime_budget,spend_cap,bid_strategy,objective,created_time,updated_time'
+// the compliance fields let a launcher confirm Facebook kept what it was sent
 const AD_SET_FIELDS =
-  'id,name,campaign_id,status,daily_budget,lifetime_budget,optimization_goal,promoted_object,created_time'
+  'id,name,campaign_id,status,daily_budget,lifetime_budget,optimization_goal,promoted_object,created_time,' +
+  'start_time,targeting,dsa_beneficiary,dsa_payor,regional_regulated_categories,regional_regulation_identities'
 const AD_FIELDS = 'id,name,adset_id,status,creative{id,thumbnail_url,actor_id,object_story_spec{page_id}},created_time'
 export const CREATIVE_FIELDS =
   'id,name,object_story_spec,thumbnail_url,instagram_actor_id,asset_feed_spec,degrees_of_freedom_spec,url_tags'
@@ -50,9 +53,19 @@ readRouter.get('/ad-accounts/:id/pixels', async (req, res) => {
   const { id } = adAccount(req.params.id)
   res.json(
     await withCredential(req.query.cred, async ({ client }) =>
-      (await client.list(`${id}/adspixels`, { fields: 'id,name,creation_time,owner_business{id,name}', limit: 100 })).map(
-        (p) => ({ id: p.id, name: p.name, creationTime: p.creation_time, ownerBusiness: p.owner_business ?? null }),
-      ),
+      (
+        await client.list(`${id}/adspixels`, {
+          fields: 'id,name,creation_time,last_fired_time,owner_business{id,name}',
+          limit: 100,
+        })
+      ).map((p) => ({
+        id: p.id,
+        name: p.name,
+        creationTime: p.creation_time,
+        // absent when the pixel has never fired
+        lastFiredTime: p.last_fired_time ?? null,
+        ownerBusiness: p.owner_business ?? null,
+      })),
     ),
   )
 })

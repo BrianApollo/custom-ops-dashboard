@@ -1,7 +1,8 @@
-import { RefreshCw } from 'lucide-react'
+import { Plus, RefreshCw } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { useAuth } from '../auth'
+import { NewProfileDialog } from '../components/profile-hub/NewProfileDialog'
 import { ProfilePicker, profileName, Progress } from '../components/profile-hub/ProfilePicker'
 import { SetupBoxes, type Draft } from '../components/profile-hub/SetupBoxes'
 import { boxesDone, isLive, LIST_FIELDS, TOTAL_BOXES } from '../components/profile-hub/sop'
@@ -18,6 +19,7 @@ const names = (records: ApiRecord[] | undefined, field: string) => new Map((reco
 function Hub() {
   const { expire } = useAuth()
   const [params, setParams] = useSearchParams()
+  const [adding, setAdding] = useState(false)
   const selectedId = params.get('profile') ?? ''
 
   const list = useRecords('profiles', { fields: LIST_FIELDS.join(','), sort: 'Profile Name' })
@@ -132,9 +134,28 @@ function Hub() {
         ) : !list.records ? (
           <p className="text-sm text-neutral-500">Loading…</p>
         ) : (
-          <ProfilePicker records={records} value={selectedId} onValueChange={(id) => setParams({ profile: id }, { replace: true })} unsaved={unsaved} />
+          <div className="flex items-center gap-2">
+            <ProfilePicker records={records} value={selectedId} onValueChange={(id) => setParams({ profile: id }, { replace: true })} unsaved={unsaved} />
+            <Tip label="Add a new profile">
+              <button aria-label="Add a new profile" onClick={() => setAdding(true)} className={`${button.secondary} size-10 px-0`}>
+                <Plus className="size-4" />
+              </button>
+            </Tip>
+          </div>
         )}
       </div>
+
+      {adding && (
+        <NewProfileDialog
+          onClose={() => setAdding(false)}
+          onCreated={(id) => {
+            setAdding(false)
+            list.reload()
+            // the new profile opens straight away
+            setParams({ profile: id }, { replace: true })
+          }}
+        />
+      )}
 
       {!selectedId && list.records && (
         <p className="mt-6 rounded-lg border border-dashed border-neutral-300 px-4 py-10 text-center text-sm text-neutral-500">

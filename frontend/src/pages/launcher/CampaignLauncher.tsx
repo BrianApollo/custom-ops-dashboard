@@ -135,10 +135,16 @@ function Launcher({ campaign, onReload }: { campaign: ApiRecord; onReload: () =>
     kind,
     url: row.creativeLink ?? '',
   })
-  // a YouTube cut is not an ad; AI videos sit in their own table and join the same list
+  // A YouTube cut is not an ad, and a video still To Do has no file yet, so neither is offered.
+  // A To Do video already ticked in this draft stays listed, so it can be unticked.
+  const offered = (row: VideoRow) => row.status !== 'To Do' || draft.videoIds.has(row.id)
+  // AI videos sit in their own table and join the same list
   const allVideos =
     videos.data && aiVideos.data
-      ? [...videos.data.records.filter((row) => (row.format ?? '').toLowerCase() !== 'youtube').map(video('video')), ...aiVideos.data.records.map(video('ai'))]
+      ? [
+          ...videos.data.records.filter((row) => (row.format ?? '').toLowerCase() !== 'youtube' && offered(row)).map(video('video')),
+          ...aiVideos.data.records.filter(offered).map(video('ai')),
+        ]
       : undefined
   // a generated image is not in the Images table until it is approved
   const usableImages = images.data?.records

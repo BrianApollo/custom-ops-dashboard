@@ -152,16 +152,16 @@ export function MediaPanel({ draft, onChange, videos, images, error, cred }: Pro
   // The library buttons act on the ticked videos, or on every video shown when none is ticked
   const tickedVideos = (videos ?? []).filter((video) => draft.videoIds.has(video.id))
   const inScope = tickedVideos.length ? tickedVideos : matching(videos, views.videos)
-  const scopeChecked = inScope.some((video) => library.entries.has(video.name))
-  // only what a check found missing is uploaded, so a video already there is never sent twice
-  const toUpload = inScope.filter((video) => video.url && library.entries.get(video.name)?.state === 'missing')
+  // Anything not known to be in the library can be sent: never checked, missing, or failed
+  // before. Upload reads the library again first, so nothing already there is sent twice.
+  const inLibrary = ['ready', 'processing', 'uploading']
+  const toUpload = inScope.filter((video) => video.url && !inLibrary.includes(library.entries.get(video.name)?.state ?? ''))
   const some = tickedVideos.length ? 'ticked ' : ''
 
   let checkTip = `Check which of the ${inScope.length.toLocaleString()} ${some}videos are already in the ad account's video library`
-  let uploadTip = `Upload ${toUpload.length.toLocaleString()} ${some}video${toUpload.length === 1 ? '' : 's'} missing from the library, ahead of the launch`
+  let uploadTip = `Upload the ${some}videos missing from the library, ahead of the launch. The library is checked first, so nothing is sent twice.`
   if (!library.ready) checkTip = uploadTip = 'Choose a Facebook token and an ad account first'
-  else if (!scopeChecked) uploadTip = 'Check the library first, so nothing is uploaded twice'
-  else if (!toUpload.length) uploadTip = `No ${some}video is known to be missing from the library`
+  else if (!toUpload.length) uploadTip = `Every ${some}video is already in the library`
 
   const lists = {
     videos: { items: videos, chosen: draft.videoIds, choose: (videoIds: Set<string>) => onChange({ videoIds }) },
@@ -260,7 +260,7 @@ export function MediaPanel({ draft, onChange, videos, images, error, cred }: Pro
                     onClick={() => void library.upload(toUpload.map((video) => ({ name: video.name, url: video.url })))}
                     className={button.icon}
                   >
-                    {library.busy === 'uploading' ? <RefreshCw className="size-4 animate-spin" /> : <CloudUpload className="size-4" />}
+                    {library.busy ? <RefreshCw className="size-4 animate-spin" /> : <CloudUpload className="size-4" />}
                   </button>
                 </span>
               </Tip>
