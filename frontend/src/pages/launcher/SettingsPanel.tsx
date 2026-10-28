@@ -25,6 +25,7 @@ interface RedtrackCampaign {
   id: string
   title?: string
   name?: string
+  created_at?: string
   // the tracking link; its path and query become the tracking parameters
   trackback_url?: string
   // the first stream's first lander is the page the ads send people to
@@ -165,7 +166,12 @@ export function SettingsPanel({ draft, onChange, presets, assets, account }: Pro
 
   // RedTrack answers with a plain list or wraps it in `items`, depending on the route
   const redtrack = useFetch<RedtrackCampaign[] | { items?: RedtrackCampaign[] }>('/redtrack/campaigns?page=1&per=1000')
-  const redtrackOptions = (Array.isArray(redtrack.data) ? redtrack.data : (redtrack.data?.items ?? [])).map((item) => ({
+  // newest first; a RedTrack id starts with its creation time, so it orders campaigns that carry no date
+  const createdTime = (item: RedtrackCampaign) => Date.parse(item.created_at ?? '') || 0
+  const redtrackCampaigns = [...(Array.isArray(redtrack.data) ? redtrack.data : (redtrack.data?.items ?? []))].sort(
+    (a, b) => createdTime(b) - createdTime(a) || b.id.localeCompare(a.id),
+  )
+  const redtrackOptions = redtrackCampaigns.map((item) => ({
     value: item.id,
     label: item.title || item.name || item.id,
   }))

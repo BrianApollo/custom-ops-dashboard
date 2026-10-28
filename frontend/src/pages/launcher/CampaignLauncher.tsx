@@ -121,7 +121,8 @@ function Launcher({ campaign, onReload }: { campaign: ApiRecord; onReload: () =>
   const videos = useFetch<{ records: VideoRow[] }>(`/videos?${byProduct}`)
   const aiVideos = useFetch<{ records: VideoRow[] }>(`/videos?kind=ai&${byProduct}`)
   const images = useFetch<{ records: ImageRow[] }>(`/images?${byProduct}`)
-  const presets = useRecords('ad_presets', productId ? { 'where[Product]': productId } : {})
+  // newest first
+  const presets = useRecords('ad_presets', { sort: '-createdTime', ...(productId ? { 'where[Product]': productId } : {}) })
   const profiles = useRecords('profiles', { fields: 'Profile Name,Profile ID,Hidden,hasToken' })
   const managers = useRecords('business_managers', { fields: 'BM Name,BM ID,Hidden,System User ID,hasToken' })
   // '' matches no product, so a campaign without one is offered nothing

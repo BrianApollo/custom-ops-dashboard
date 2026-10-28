@@ -170,8 +170,12 @@ export function Combobox({ value, options, placeholder, disabled, noun, onValueC
   const [search, setSearch] = useState('')
   const [active, setActive] = useState(0)
 
-  const term = search.trim().toLowerCase()
-  const matches = options.filter((option) => `${option.label} ${option.detail ?? ''}`.toLowerCase().includes(term))
+  // every word typed must appear somewhere, in any order: `fb us keto` finds `Keto - US - FB`
+  const words = search.toLowerCase().split(/\s+/).filter(Boolean)
+  const matches = options.filter((option) => {
+    const haystack = `${option.label} ${option.detail ?? ''}`.toLowerCase()
+    return words.every((word) => haystack.includes(word))
+  })
   const shown = matches.slice(0, COMBOBOX_MAX)
   const selected = options.find((option) => option.value === value)
 

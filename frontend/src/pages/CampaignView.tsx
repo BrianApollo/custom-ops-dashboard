@@ -1,4 +1,4 @@
-import { ArrowLeft, ExternalLink, Plus, RefreshCw, Rocket } from 'lucide-react'
+import { ArrowLeft, Check, Copy, ExternalLink, Plus, RefreshCw, Rocket } from 'lucide-react'
 import { Tabs } from 'radix-ui'
 import { useState } from 'react'
 import { Link, useParams } from 'react-router'
@@ -38,6 +38,12 @@ function View({ record, reload }: { record: ApiRecord; reload: () => void }) {
   const product = products.find((p) => p.id === productId)
   const fbCampaignId = text(record, 'FB Campaign ID')
   const adAccountId = text(record, 'FB Ad Account ID') || text(record, 'Ad Acc Used')
+  // Ads Manager opened on this campaign, as the launcher links it
+  const adsManagerUrl =
+    adAccountId && fbCampaignId
+      ? `https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=${adAccountId.replace(/^act_/, '')}&selected_campaign_ids=${fbCampaignId}`
+      : ''
+  const [copied, setCopied] = useState(false)
   const launchProfileId = text(record, 'Launch Profile ID')
   const bmId = text(record, 'System User BM ID')
   const snapshot = parseSnapshot(record.fields['Launched Data'])
@@ -126,16 +132,28 @@ function View({ record, reload }: { record: ApiRecord; reload: () => void }) {
               </button>
             </Tip>
           </div>
-          {adAccountId && (
-            <a
-              href={`https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=${adAccountId.replace(/^act_/, '')}&selected_campaign_ids=${fbCampaignId}`}
-              target="_blank"
-              rel="noreferrer"
-              className={button.secondary}
-            >
-              Ads Manager
-              <ExternalLink className="size-4" />
-            </a>
+          {adsManagerUrl && (
+            <div className="flex items-center gap-1">
+              <a href={adsManagerUrl} target="_blank" rel="noreferrer" className={button.secondary}>
+                Ads Manager
+                <ExternalLink className="size-4" />
+              </a>
+              {/* for pasting into the browser profile that is signed in to this ad account */}
+              <Tip label={copied ? 'Copied' : 'Copy Ads Manager link'}>
+                <button
+                  aria-label="Copy Ads Manager link"
+                  onClick={() =>
+                    void navigator.clipboard.writeText(adsManagerUrl).then(() => {
+                      setCopied(true)
+                      setTimeout(() => setCopied(false), 1500)
+                    })
+                  }
+                  className={button.icon}
+                >
+                  {copied ? <Check className="size-4 text-emerald-600" /> : <Copy className="size-4" />}
+                </button>
+              </Tip>
+            </div>
           )}
           <Tip label={adAccountId ? 'Add more of the product’s videos and images as ads' : 'No ad account is stored on this campaign'}>
             {/* a disabled button fires no pointer events, so the span carries the tooltip */}
