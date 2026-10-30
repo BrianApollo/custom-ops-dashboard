@@ -32,6 +32,8 @@ export const settings = env as typeof env & {
   FACEBOOK_APP_ID?: string
   FACEBOOK_APP_SECRET?: string
   FACEBOOK_API_VERSION?: string
+  // the Facebook Login for Business configuration whose popup hands back a system user token
+  FACEBOOK_SYSTEM_USER_CONFIG_ID?: string
   // whose calendar "today" and "last 7 days" follow; defaults to Asia/Bangkok
   TEAM_TIME_ZONE?: string
   // the bucket's r2.dev address, tried when Facebook cannot fetch a video from the main domain

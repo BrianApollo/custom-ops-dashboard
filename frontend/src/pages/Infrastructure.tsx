@@ -1,9 +1,9 @@
-import { LogIn, RefreshCw, Search } from 'lucide-react'
+import { KeyRound, LogIn, RefreshCw, Search } from 'lucide-react'
 import { Label, Switch, ToggleGroup } from 'radix-ui'
 import { useMemo, useState } from 'react'
 import { useAuth } from '../auth'
 import { DetailsPanel } from '../components/infrastructure/DetailsPanel'
-import { useFacebookLogin, type ConnectResult } from '../components/infrastructure/facebookLogin'
+import { useFacebookLogin, type ConnectResult, type SystemUserConnectResult } from '../components/infrastructure/facebookLogin'
 import { Map as InfrastructureMap } from '../components/infrastructure/Map'
 import { MasterProfile } from '../components/infrastructure/MasterProfile'
 import { buildTree,itemKey, KINDS, useInfrastructure, type Kind } from '../components/infrastructure/model'
@@ -48,6 +48,8 @@ function AdminInfrastructure() {
   const [selectedKey, setSelectedKey] = useState<string>()
   const [connecting, setConnecting] = useState(false)
   const [connected, setConnected] = useState<{ result?: ConnectResult; error?: string }>()
+  const [connectingSystemUser, setConnectingSystemUser] = useState(false)
+  const [systemUser, setSystemUser] = useState<{ result?: SystemUserConnectResult; error?: string }>()
 
   const tree = useMemo(() => data && buildTree(data, search, showHidden), [data, search, showHidden])
   const hiddenCount = data ? LISTS.reduce((sum, { list }) => sum + data[list].filter((item) => item.hidden).length, 0) : 0
@@ -77,6 +79,25 @@ function AdminInfrastructure() {
     }
   }
 
+  // The system user popup, then the server swaps its code for the business's
+  // system user token and stores it on that Business Manager
+  async function connectSystemUserFromPage() {
+    setConnectingSystemUser(true)
+    setSystemUser(undefined)
+    try {
+      const code = await facebook.loginSystemUser()
+      const result = await api<SystemUserConnectResult>('/facebook/connect-system-user', { method: 'POST', body: { code } })
+      reload()
+      setSystemUser({ result })
+      setSelectedKey(itemKey('bm', result.bmRecordId))
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) expire()
+      else setSystemUser({ error: (err as Error).message })
+    } finally {
+      setConnectingSystemUser(false)
+    }
+  }
+
   return (
     <>
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -96,6 +117,14 @@ function AdminInfrastructure() {
               {connecting ? 'Waiting for Facebook…' : 'Connect Facebook'}
             </button>
           </Tip>
+          {facebook.systemUserReady && (
+            <Tip label="Sign in as an admin of a business portfolio to store its system user token on that Business Manager">
+              <button onClick={connectSystemUserFromPage} disabled={connecting || connectingSystemUser} className={button.secondary}>
+                <KeyRound className="size-4" />
+                {connectingSystemUser ? 'Waiting for Facebook…' : 'Connect system user'}
+              </button>
+            </Tip>
+          )}
         </div>
       </div>
 
@@ -114,6 +143,19 @@ function AdminInfrastructure() {
           Connected as {connected.result.name} ({connected.result.fbUserId}). {connected.result.created ? 'A new profile was created. ' : ''}
           The token is stored and expires on {connected.result.tokenExpiresOn}. Sync the profile to load its Business Managers, ad accounts, pixels
           and pages.
+        </p>
+      )}
+
+      {systemUser?.error && (
+        <p role="alert" className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-800">
+          Could not connect the system user: {systemUser.error}
+        </p>
+      )}
+      {systemUser?.result && (
+        <p role="status" className="mt-3 rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+          Stored the system user token of {systemUser.result.bmName} ({systemUser.result.bmId}), as {systemUser.result.systemUserName}.{' '}
+          {systemUser.result.created ? 'A new Business Manager was created. ' : ''}
+          {systemUser.result.tokenExpiresOn ? `The token expires on ${systemUser.result.tokenExpiresOn}.` : 'The token never expires.'}
         </p>
       )}
 
