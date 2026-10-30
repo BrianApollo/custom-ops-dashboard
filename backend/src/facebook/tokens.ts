@@ -212,6 +212,14 @@ tokensRouter.post('/business-managers/:id/system-user-token/validate', async (re
   res.json({ isValid: info.isValid })
 })
 
+// Shows an admin the stored system user token, for use outside the dashboard.
+// The only place a token goes back out; every look is written to the audit log.
+tokensRouter.get('/business-managers/:id/system-user-token', async (req, res) => {
+  const token = await storedToken('business_managers', req.params.id)
+  await auditStatement(nowIso(), currentUser(res).id, 'facebook_system_user_token_reveal', 'business_managers', req.params.id).run()
+  res.json({ token })
+})
+
 // Saves a system user token pasted in by an admin, after Facebook confirms it
 tokensRouter.put('/business-managers/:id/system-user-token', async (req, res) => {
   const token = req.body?.token

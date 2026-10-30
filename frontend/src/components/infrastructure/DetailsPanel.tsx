@@ -125,6 +125,8 @@ function Details({ item, data, onClose, onSelect, onChanged, facebook, connect }
   const [confirmingMaster, setConfirmingMaster] = useState(false)
   const [pasting, setPasting] = useState(false)
   const [pasted, setPasted] = useState('')
+  // the stored system user token, while an admin has chosen to look at it
+  const [revealed, setRevealed] = useState<string>()
 
   const hasToken = Boolean(item.record.fields.hasToken)
   const synced = when(text(item.record, meta.syncedField))
@@ -245,6 +247,13 @@ function Details({ item, data, onClose, onSelect, onChanged, facebook, connect }
       return res.isValid
         ? { tone: 'success', title: 'Facebook says the system user token is valid.' }
         : { tone: 'error', title: 'Facebook says the system user token is not valid.', lines: plain('Generate a new one, or paste one.') }
+    })
+
+  const revealSystemToken = () =>
+    run('reveal', async () => {
+      const res = await api<{ token: string }>(`${facebookPath}/system-user-token`)
+      setRevealed(res.token)
+      return { tone: 'info', title: 'The token is shown below. Every look is recorded in the audit log.' }
     })
 
   function saveSystemToken(event: FormEvent) {
@@ -462,7 +471,7 @@ function Details({ item, data, onClose, onSelect, onChanged, facebook, connect }
         {item.kind === 'bm' && (
           <Section title="System user token">
             <p className="text-sm text-neutral-700">
-              {hasToken ? `A token is stored${systemUserCreated ? `, saved ${systemUserCreated}` : ''}.` : 'No token is stored.'} The token itself is never shown.
+              {hasToken ? `A token is stored${systemUserCreated ? `, saved ${systemUserCreated}` : ''}.` : 'No token is stored.'} It is only shown when asked for.
             </p>
             <div className="flex flex-wrap gap-2">
               {hasToken && (
@@ -470,11 +479,25 @@ function Details({ item, data, onClose, onSelect, onChanged, facebook, connect }
                   {action('validate', 'Check', 'Checking…', <ShieldCheck className="size-4" />, validateSystemToken)}
                 </Tip>
               )}
+              {hasToken &&
+                (revealed ? (
+                  action('reveal', 'Hide token', 'Loading…', <EyeOff className="size-4" />, () => setRevealed(undefined))
+                ) : (
+                  <Tip label="Shows the stored token so it can be copied. The look is recorded.">
+                    {action('reveal', 'Show token', 'Loading…', <Eye className="size-4" />, revealSystemToken)}
+                  </Tip>
+                ))}
               <Tip label="Finds or creates this Business Manager’s system user and stores a token for it">
                 {action('generate', hasToken ? 'Generate again' : 'Generate', 'Generating…', <KeyRound className="size-4" />, generateSystemToken)}
               </Tip>
               {!pasting && action('paste', 'Paste a token', 'Saving…', <Pencil className="size-4" />, () => setPasting(true))}
             </div>
+            {revealed && (
+              <div className="flex items-start gap-2 rounded-md border border-neutral-200 bg-neutral-50 p-2">
+                <code className="min-w-0 flex-1 text-xs break-all select-all">{revealed}</code>
+                <CopyButton value={revealed} label="Copy token" />
+              </div>
+            )}
             {pasting && (
               <form onSubmit={saveSystemToken}>
                 <Label.Root htmlFor="infra-system-token" className="text-sm font-medium">
