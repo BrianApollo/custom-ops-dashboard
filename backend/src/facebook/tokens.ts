@@ -87,15 +87,21 @@ tokensRouter.post('/connect-system-user', async (req, res) => {
   const info = await inspectToken(token)
   if (!info.isValid) throw new ApiError(502, 'facebook_error', 'Facebook handed back a token it does not accept')
   const client = new FacebookClient(token)
-  const me = await client.get('me', { fields: 'id,name' })
+  // a Business Integration System User names its business portfolio itself
+  const me = await client.get('me', { fields: 'id,name,client_business_id' })
 
-  // the one business portfolio the system user belongs to. Asked for twice:
-  // a system user token is not always allowed to list its businesses, but the
-  // token inspection names the business its business_management covers
-  let business: FbObject | undefined = (await client.list('me/businesses', { fields: 'id,name,verification_status', limit: 100 }).catch(() => []))[0]
-  if (!business) {
-    const bmId = info.granularScopes.find((s) => s.scope === 'business_management')?.target_ids?.[0]
-    if (bmId) business = await client.get(bmId, { fields: 'id,name,verification_status' }).catch(() => undefined)
+  // the one business portfolio the system user belongs to. Asked for in three
+  // ways: the client_business_id above, then the businesses the token may list,
+  // then the business its business_management permission was narrowed to
+  const bmIds = [
+    me.client_business_id as string | undefined,
+    ...(await client.list('me/businesses', { fields: 'id', limit: 100 }).catch(() => [])).map((b) => String(b.id)),
+    ...(info.granularScopes.find((s) => s.scope === 'business_management')?.target_ids ?? []),
+  ].filter((id): id is string => Boolean(id))
+  let business: FbObject | undefined
+  if (bmIds[0]) {
+    // the details are a courtesy; the id alone is enough to store the token
+    business = await client.get(bmIds[0], { fields: 'id,name,verification_status' }).catch(() => ({ id: bmIds[0] }))
   }
   if (!business) throw new ApiError(502, 'facebook_error', 'Facebook did not say which business portfolio the system user belongs to')
 
