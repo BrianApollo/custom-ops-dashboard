@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { currentUser } from '../auth/session'
-import { CONTAINS, containsParam, wholeNumber } from '../data/read'
+import { containsWords, wholeNumber } from '../data/read'
 import { batch, sql } from '../lib/d1'
 import { badRequest, forbidden, invalid } from '../lib/errors'
 import { RECORD_ID } from '../lib/ids'
@@ -59,8 +59,9 @@ imagesRouter.get('/images', async (req, res) => {
     params.push(productId)
   }
   if (typeof search === 'string' && search.trim()) {
-    filters.push(`x.name ${CONTAINS}`)
-    params.push(containsParam(search.trim()))
+    const words = containsWords('x.name', search)
+    filters.push(words.sql)
+    params.push(...words.params)
   }
   const where = (extra: string[] = []) => {
     const all = [...filters, ...extra]

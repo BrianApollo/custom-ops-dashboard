@@ -100,6 +100,48 @@ export function useFetch<T>(path: string | null) {
   }
 }
 
+const PAGE = 1000
+
+// Every row of a paged list route (/videos, /images), read page by page until
+// the route's `total` is reached. `path` carries the filters but no limit or offset;
+// null while there is nothing to read yet.
+export function useAllPages<T>(path: string | null) {
+  const { expire } = useAuth()
+  const [result, setResult] = useState<{ path: string | null; data?: { records: T[] }; error?: ApiError | Error }>({ path })
+  const [version, setVersion] = useState(0)
+
+  useEffect(() => {
+    if (path === null) return
+    let stale = false
+    const joiner = path.includes('?') ? '&' : '?'
+    ;(async () => {
+      const records: T[] = []
+      for (;;) {
+        const page = await api<{ records: T[]; total: number }>(`${path}${joiner}limit=${PAGE}&offset=${records.length}`)
+        records.push(...page.records)
+        if (page.records.length < PAGE || records.length >= page.total) return records
+      }
+    })()
+      .then((records) => !stale && setResult({ path, data: { records } }))
+      .catch((err: Error) => {
+        if (stale) return
+        if (err instanceof ApiError && err.status === 401) expire()
+        else setResult({ path, error: err })
+      })
+    return () => {
+      stale = true
+    }
+  }, [path, version, expire])
+
+  const current = result.path === path ? result : undefined
+  return {
+    data: current?.data,
+    error: current?.error,
+    loading: path !== null && !current?.data && !current?.error,
+    reload: () => setVersion((v) => v + 1),
+  }
+}
+
 // A list from the data API. `query` uses the API's own parameters (fields, sort, where[Field]).
 export function useRecords(table: string, query: Record<string, string>) {
   const { expire } = useAuth()

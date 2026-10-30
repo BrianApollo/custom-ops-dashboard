@@ -2,6 +2,7 @@ import { Activity, Building2, CreditCard, Flag, User, type LucideIcon } from 'lu
 import { useMemo } from 'react'
 import { useRecords } from '../../data'
 import { text, type ApiRecord } from '../../lib/api'
+import { searchWords } from '../../lib/search'
 
 export type Kind = 'profile' | 'bm' | 'adAccount' | 'page' | 'pixel'
 export type Tone = 'green' | 'amber' | 'red' | 'blue' | 'neutral'
@@ -237,7 +238,7 @@ export interface Tree {
 // everything under it, and the path down to any match further in. Whatever
 // sits under a hidden record is hidden with it.
 export function buildTree(data: Data, search: string, showHidden: boolean): Tree {
-  const words = search.toLowerCase().split(/\s+/).filter(Boolean)
+  const words = searchWords(search)
   const shown = (item: Item) => showHidden || !item.hidden
   const hit = (item: Item) => words.every((word) => item.haystack.includes(word))
   // `all`: something above matched, so the whole list stays

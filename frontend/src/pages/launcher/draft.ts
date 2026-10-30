@@ -112,7 +112,8 @@ export function draftFrom(campaign: ApiRecord): Draft {
     websiteUrl: text(campaign, 'Website Url'),
     tracking: text(campaign, 'UTMs'),
     displayLink: text(campaign, 'Display Link'),
-    launchActive: Boolean(campaign.fields['Launch As Active']),
+    // launching active is the default; a campaign saved with it unticked keeps that
+    launchActive: fresh || Boolean(campaign.fields['Launch As Active']),
     // looking in the library first is the default; it stops the same video being uploaded twice
     reuseCreatives: fresh || Boolean(campaign.fields['Reuse Creatives']),
     videoIds: new Set([...linked(campaign, 'Videos Used In This Campaign'), ...linked(campaign, 'Videos copy')]),

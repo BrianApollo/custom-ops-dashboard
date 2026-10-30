@@ -148,6 +148,12 @@ export interface ListQuery {
 export const CONTAINS = `LIKE ? ESCAPE '\\'`
 export const containsParam = (text: string) => `%${text.replace(/[\\%_]/g, '\\$&')}%`
 
+// Tokenised search: every word of `search` somewhere in the column, in any order
+export function containsWords(column: string, search: string) {
+  const words = search.trim().split(/\s+/).filter(Boolean)
+  return { sql: words.map(() => `${column} ${CONTAINS}`).join(' AND '), params: words.map(containsParam) }
+}
+
 export function wholeNumber(raw: unknown, name: string, min: number) {
   const n = Number(raw)
   if (!Number.isInteger(n) || n < min) throw badRequest(`${name} must be a whole number of at least ${min}`)
@@ -255,8 +261,9 @@ export function parseListQuery(meta: TableMeta, user: AuthUser, query: Record<st
     } else if (key === 'search') {
       // matches the record's name, ignoring letter case
       if (String(raw).trim()) {
-        where.push(`t.${meta.primaryColumn} ${CONTAINS}`)
-        params.push(containsParam(String(raw).trim()))
+        const words = containsWords(`t.${meta.primaryColumn}`, String(raw))
+        where.push(words.sql)
+        params.push(...words.params)
       }
     } else {
       const match = PARAM.exec(key)

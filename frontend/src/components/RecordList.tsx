@@ -3,6 +3,7 @@ import { useState, type ReactNode } from 'react'
 import { useRecords, type Product } from '../data'
 import type { ApiRecord } from '../lib/api'
 import { DataTable, type Column } from './DataTable'
+import { matchesSearch } from '../lib/search'
 import { RecordDialog } from './RecordDialog'
 import { button, StatusChips, Tip } from './ui'
 
@@ -48,7 +49,7 @@ export function RecordList(props: Props) {
   const [picked, setPicked] = useState<string>()
 
   const term = search.trim().toLowerCase()
-  const searched = (records ?? []).filter((record) => name(record).toLowerCase().includes(term))
+  const searched = (records ?? []).filter((record) => matchesSearch(term, name(record)))
 
   const statusCounts = new Map<string, number>()
   if (statusOf) {

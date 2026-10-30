@@ -1,6 +1,7 @@
 import { Check, ChevronDown, Search, X } from 'lucide-react'
 import { Popover, Select as RadixSelect, ToggleGroup, Tooltip } from 'radix-ui'
 import { useState, type KeyboardEvent, type ReactNode } from 'react'
+import { matchesSearch } from '../lib/search'
 
 // Shared class strings, so buttons and inputs look the same on every page
 export const button = {
@@ -170,12 +171,7 @@ export function Combobox({ value, options, placeholder, disabled, noun, onValueC
   const [search, setSearch] = useState('')
   const [active, setActive] = useState(0)
 
-  // every word typed must appear somewhere, in any order: `fb us keto` finds `Keto - US - FB`
-  const words = search.toLowerCase().split(/\s+/).filter(Boolean)
-  const matches = options.filter((option) => {
-    const haystack = `${option.label} ${option.detail ?? ''}`.toLowerCase()
-    return words.every((word) => haystack.includes(word))
-  })
+  const matches = options.filter((option) => matchesSearch(search, option.label, option.detail))
   const shown = matches.slice(0, COMBOBOX_MAX)
   const selected = options.find((option) => option.value === value)
 

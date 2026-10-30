@@ -2,7 +2,7 @@ import { Check, X } from 'lucide-react'
 import { Checkbox, Dialog, Label } from 'radix-ui'
 import { useEffect, useState } from 'react'
 import { useAuth } from '../../auth'
-import { useFetch } from '../../data'
+import { useAllPages, useFetch } from '../../data'
 import { api, ApiError } from '../../lib/api'
 import { withCred } from '../../lib/facebook'
 import { checkbox } from '../DataTable'
@@ -20,7 +20,6 @@ interface Props {
   onChanged: () => void
 }
 
-const ALL = '1000'
 const POLL_MS = 5000
 // what happens to the ad being replaced once the new one exists
 const AFTERWARDS = [
@@ -61,9 +60,9 @@ export function ReplaceVideoDialog({ ad, adAccountId, cred, productId, onClose, 
   const [run, setRun] = useState<Run>({ phase: 'form', step: '', startedAt: 0, problems: [] })
   const [now, setNow] = useState(0)
 
-  const byProduct = productId ? new URLSearchParams({ productId, limit: ALL, sort: 'name' }) : null
-  const videos = useFetch<{ records: VideoRow[] }>(byProduct && `/videos?${byProduct}`)
-  const aiVideos = useFetch<{ records: VideoRow[] }>(byProduct && `/videos?kind=ai&${byProduct}`)
+  const byProduct = productId ? new URLSearchParams({ productId, sort: 'name' }) : null
+  const videos = useAllPages<VideoRow>(byProduct && `/videos?${byProduct}`)
+  const aiVideos = useAllPages<VideoRow>(byProduct && `/videos?kind=ai&${byProduct}`)
   // only a finished file in our storage can be handed to Facebook
   const usable = [...(videos.data?.records ?? []), ...(aiVideos.data?.records ?? [])].filter(
     (video) => video.creativeLink && !/youtube/i.test(video.format ?? ''),

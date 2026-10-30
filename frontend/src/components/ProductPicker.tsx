@@ -2,6 +2,7 @@ import { Check, ChevronDown, Package, Plus, Search } from 'lucide-react'
 import { Popover } from 'radix-ui'
 import { useState, type KeyboardEvent } from 'react'
 import type { Product } from '../data'
+import { matchesSearch } from '../lib/search'
 import { StatusBadge } from './ui'
 
 // Active products first, then the other statuses alphabetically
@@ -38,7 +39,7 @@ export function ProductPicker({ products, selected, onSelect, onCreate }: Props)
   const [active, setActive] = useState(0)
 
   const term = search.trim().toLowerCase()
-  const groups = groupByStatus(products.filter((product) => product.name.toLowerCase().includes(term)))
+  const groups = groupByStatus(products.filter((product) => matchesSearch(term, product.name)))
   // the keyboard moves through one flat list: "All Products", then every product in display order
   const options: (Product | null)[] = [null, ...groups.flatMap(([, items]) => items)]
 

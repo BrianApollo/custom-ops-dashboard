@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { currentUser } from '../auth/session'
-import { CONTAINS, containsParam, wholeNumber } from '../data/read'
+import { containsWords, wholeNumber } from '../data/read'
 import { batch, sql } from '../lib/d1'
 import { badRequest, forbidden, invalid } from '../lib/errors'
 import { RECORD_ID } from '../lib/ids'
@@ -48,8 +48,9 @@ scriptsRouter.get('/scripts', async (req, res) => {
     params.push(productId)
   }
   if (typeof search === 'string' && search.trim()) {
-    filters.push(`s.name ${CONTAINS}`)
-    params.push(containsParam(search.trim()))
+    const words = containsWords('s.name', search)
+    filters.push(words.sql)
+    params.push(...words.params)
   }
   const base = filters.length ? `WHERE ${filters.join(' AND ')}` : ''
   const chosen = assigned === undefined ? filters : [...filters, assigned === 'true' ? HAS_VIDEOS : `NOT ${HAS_VIDEOS}`]

@@ -2,10 +2,11 @@ import { Check, Search, X } from 'lucide-react'
 import { Checkbox, Dialog, Tabs } from 'radix-ui'
 import { useState } from 'react'
 import { useAuth } from '../../auth'
-import { useFetch } from '../../data'
+import { useAllPages, useFetch } from '../../data'
 import { api, ApiError, text, type ApiRecord } from '../../lib/api'
 import { withCred } from '../../lib/facebook'
 import { checkbox } from '../DataTable'
+import { matchesSearch } from '../../lib/search'
 import { button, Select, StatusBadge } from '../ui'
 import { alertBox, chunks, Confirm, messageOf, modal, noteBox, refusedUnsent, sleep, useAlive, type Confirmation, type FbState, type VideoRow } from './shared'
 
@@ -34,8 +35,6 @@ export interface AddAdsProps {
   onAdded?: (created: number) => void
 }
 
-// more than any one product has
-const ALL = '1000'
 const UPLOAD_BATCH = 10
 const AD_BATCH = 25
 const STATUS_BATCH = 50
@@ -140,7 +139,7 @@ function MediaList({ items, noun, chosen, onChosen }: ListProps) {
   const term = search.trim().toLowerCase()
   // a ticked item stays in sight when the filter would hide it, so nothing is chosen unseen
   const shown = (items ?? []).filter(
-    (item) => item.name.toLowerCase().includes(term) && ((filter === 'Used') === (item.status === 'Used') || chosen.has(item.id)),
+    (item) => matchesSearch(term, item.name) && ((filter === 'Used') === (item.status === 'Used') || chosen.has(item.id)),
   )
   const pickable = shown.filter((item) => item.url)
   const shownChosen = pickable.filter((item) => chosen.has(item.id)).length
@@ -248,10 +247,10 @@ export function AddAdsDialog({ fbCampaignId, fbAdAccountId, cred, onClose, onAdd
   const productId = (record.data?.fields.Product as string[] | undefined)?.[0]
   const fb = useFetch<FbState>(withCred(`/facebook/campaigns/${fbCampaignId}`, cred))
 
-  const byProduct = productId ? new URLSearchParams({ productId, limit: ALL, sort: 'name' }) : null
-  const videos = useFetch<{ records: VideoRow[] }>(byProduct && `/videos?${byProduct}`)
-  const aiVideos = useFetch<{ records: VideoRow[] }>(byProduct && `/videos?kind=ai&${byProduct}`)
-  const images = useFetch<{ records: ImageRow[] }>(byProduct && `/images?${byProduct}`)
+  const byProduct = productId ? new URLSearchParams({ productId, sort: 'name' }) : null
+  const videos = useAllPages<VideoRow>(byProduct && `/videos?${byProduct}`)
+  const aiVideos = useAllPages<VideoRow>(byProduct && `/videos?kind=ai&${byProduct}`)
+  const images = useAllPages<ImageRow>(byProduct && `/images?${byProduct}`)
 
   const adSets = fb.data?.adSets ?? []
   const adSet = adSets.find((set) => set.id === adSetChoice) ?? adSets[0]

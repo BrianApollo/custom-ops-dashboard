@@ -3,6 +3,7 @@ import { Dialog } from 'radix-ui'
 import { useState } from 'react'
 import { button, StatusBadge } from '../../components/ui'
 import { text, type ApiRecord } from '../../lib/api'
+import { matchesSearch } from '../../lib/search'
 
 interface Props {
   // launched campaigns of the same product, newest first; undefined while loading
@@ -23,7 +24,7 @@ export function CloneDialog({ candidates, error, onClose, onClone }: Props) {
   const [chosen, setChosen] = useState<string>()
   const term = search.trim().toLowerCase()
   const shown = (candidates ?? []).filter((record) =>
-    ['Name', 'RedTrack Campaign Name', 'Ad Acc Used', 'FB Ad Account ID'].some((field) => text(record, field).toLowerCase().includes(term)),
+    matchesSearch(term, ...['Name', 'RedTrack Campaign Name', 'Ad Acc Used', 'FB Ad Account ID'].map((field) => text(record, field))),
   )
   const source = shown.find((record) => record.id === chosen)
 

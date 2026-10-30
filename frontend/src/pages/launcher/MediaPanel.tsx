@@ -3,6 +3,7 @@ import { Checkbox, DropdownMenu, Tabs } from 'radix-ui'
 import { useState } from 'react'
 import { checkbox } from '../../components/DataTable'
 import { button, Select, StatusBadge, Tip } from '../../components/ui'
+import { matchesSearch } from '../../lib/search'
 import type { Creative, Draft } from './draft'
 import { useLibrary, type LibraryEntry } from './useLibrary'
 
@@ -14,7 +15,14 @@ type Kind = 'videos' | 'images'
 interface View {
   search: string
   filter: string
+  // videos only: script videos or AI videos; undefined shows both
+  source?: Creative['kind']
 }
+
+const SOURCES: { kind: Creative['kind']; label: string }[] = [
+  { kind: 'video', label: 'Script videos' },
+  { kind: 'ai', label: 'AI videos' },
+]
 
 interface Props {
   draft: Draft
@@ -46,11 +54,13 @@ function LibraryChip({ entry }: { entry: LibraryEntry }) {
   return entry.error ? <Tip label={entry.error}>{chip}</Tip> : chip
 }
 
-// What the search and the Not used / Used / All filter leave
+// What the search, the Script / AI switch and the Not used / Used / All filter leave
 function matching(items: Creative[] | undefined, view: View) {
-  const term = view.search.trim().toLowerCase()
   return (items ?? []).filter(
-    (item) => item.name.toLowerCase().includes(term) && (view.filter === 'All' || (view.filter === 'Used') === (item.status === 'Used')),
+    (item) =>
+      matchesSearch(view.search, item.name) &&
+      (!view.source || item.kind === view.source) &&
+      (view.filter === 'All' || (view.filter === 'Used') === (item.status === 'Used')),
   )
 }
 
@@ -66,11 +76,10 @@ interface ListProps {
 }
 
 function CreativeList({ items, chosen, onChosen, noun, view, onView, library }: ListProps) {
-  const matches = new Set(matching(items, view).map((item) => item.id))
-  const term = view.search.trim().toLowerCase()
-  // a ticked item stays in sight when the filter would hide it, so nothing is chosen unseen
-  const shown = (items ?? []).filter((item) => matches.has(item.id) || (chosen.has(item.id) && item.name.toLowerCase().includes(term)))
+  const shown = matching(items, view)
   const shownChosen = shown.filter((item) => chosen.has(item.id)).length
+  // ticked items the status filter or the Script / AI switch hides are counted, so nothing is chosen unseen
+  const hiddenChosen = (items ?? []).filter((item) => chosen.has(item.id) && matchesSearch(view.search, item.name)).length - shownChosen
 
   function set(ids: string[], on: boolean) {
     const next = new Set(chosen)
@@ -97,6 +106,21 @@ function CreativeList({ items, chosen, onChosen, noun, view, onView, library }: 
         </div>
         <Select label={`Show ${noun}`} value={view.filter} options={FILTERS} onValueChange={(filter) => onView({ ...view, filter })} />
       </div>
+
+      {hiddenChosen > 0 && (
+        <p className="flex items-center gap-2 border-b border-neutral-200 bg-amber-50 px-4 py-2 text-xs text-amber-900">
+          <span className="flex-1">
+            {hiddenChosen} selected {hiddenChosen === 1 ? noun.replace(/s$/, '') + ' is' : noun + ' are'} hidden by the filters.
+          </span>
+          <button
+            type="button"
+            onClick={() => onView({ ...view, filter: 'All', source: undefined })}
+            className="font-medium underline hover:text-amber-950"
+          >
+            Show all
+          </button>
+        </p>
+      )}
 
       {shown.length > 0 && (
         <label className="flex items-center gap-3 border-b border-neutral-200 px-4 py-2 text-sm text-neutral-600">
@@ -284,18 +308,40 @@ export function MediaPanel({ draft, onChange, videos, images, error, cred }: Pro
         </Tabs.List>
       </div>
 
-      <label className="flex items-center gap-3 border-b border-neutral-200 px-4 py-2.5 text-sm text-neutral-700">
-        <Checkbox.Root
-          checked={draft.reuseCreatives}
-          onCheckedChange={(on) => onChange({ reuseCreatives: on === true })}
-          className={`${checkbox} shrink-0`}
-        >
-          <Checkbox.Indicator>
-            <Check className="size-3" />
-          </Checkbox.Indicator>
-        </Checkbox.Root>
-        Use existing creatives if already in the ad account
-      </label>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-neutral-200 px-4 py-2.5 text-sm text-neutral-700">
+        <label className="flex min-w-0 flex-1 items-center gap-3">
+          <Checkbox.Root
+            checked={draft.reuseCreatives}
+            onCheckedChange={(on) => onChange({ reuseCreatives: on === true })}
+            className={`${checkbox} shrink-0`}
+          >
+            <Checkbox.Indicator>
+              <Check className="size-3" />
+            </Checkbox.Indicator>
+          </Checkbox.Root>
+          Use existing creatives if already in the ad account
+        </label>
+        {tab === 'videos' && (
+          // pressing the shown kind again shows both
+          <div role="group" aria-label="Video kind" className="flex rounded-md border border-neutral-300 p-0.5">
+            {SOURCES.map(({ kind, label }) => {
+              const on = views.videos.source === kind
+              return (
+                <button
+                  key={kind}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => setViews({ ...views, videos: { ...views.videos, source: on ? undefined : kind } })}
+                  className={`rounded px-2.5 py-1 text-xs font-medium whitespace-nowrap ${on ? 'bg-blue-700 text-white' : 'text-neutral-600 hover:bg-neutral-100'}`}
+                >
+                  {/* how many the search and status filter would show for this kind */}
+                  {label} ({matching(videos, { ...views.videos, source: kind }).length})
+                </button>
+              )
+            })}
+          </div>
+        )}
+      </div>
       {library.error && (
         <p role="alert" className="border-b border-neutral-200 px-4 py-2 text-xs text-red-700">
           {library.error}

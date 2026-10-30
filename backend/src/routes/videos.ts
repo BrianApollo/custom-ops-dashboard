@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { currentUser } from '../auth/session'
-import { CONTAINS, containsParam, wholeNumber } from '../data/read'
+import { containsWords, wholeNumber } from '../data/read'
 import { batch, sql } from '../lib/d1'
 import { badRequest, forbidden, invalid } from '../lib/errors'
 import { RECORD_ID } from '../lib/ids'
@@ -55,8 +55,9 @@ videosRouter.get('/videos', async (req, res) => {
     params.push(editorId)
   }
   if (typeof search === 'string' && search.trim()) {
-    filters.push(`v.video_name ${CONTAINS}`)
-    params.push(containsParam(search.trim()))
+    const words = containsWords('v.video_name', search)
+    filters.push(words.sql)
+    params.push(...words.params)
   }
   const where = (extra: string[] = []) => {
     const all = [...filters, ...extra]

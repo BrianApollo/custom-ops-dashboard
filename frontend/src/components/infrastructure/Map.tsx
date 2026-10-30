@@ -1,4 +1,5 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { matchesSearch } from '../../lib/search'
 import { KINDS, linked, statusTone, type Data, type Item, type Kind, type Tone } from './model'
 import { Badge } from './parts'
 
@@ -53,7 +54,7 @@ export function Map({ data, search, showHidden, selectedKey, onSelect }: Props) 
 
   const term = search.trim().toLowerCase()
   const { shown, edges } = useMemo(() => {
-    const visible = (items: Item[]) => items.filter((item) => (showHidden || !item.hidden) && item.haystack.includes(term))
+    const visible = (items: Item[]) => items.filter((item) => (showHidden || !item.hidden) && matchesSearch(term, item.haystack))
     const shown: Record<Kind, Item[]> = {
       adAccount: visible(data.adAccounts),
       page: visible(data.pages),

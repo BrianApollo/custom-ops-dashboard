@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { useAuth } from '../../auth'
 import { button, Select, StatusBadge, Tip } from '../../components/ui'
-import { useFetch, useRecords, useWorkspace } from '../../data'
+import { useAllPages, useFetch, useRecords, useWorkspace } from '../../data'
 import { api, text, type ApiRecord } from '../../lib/api'
 import { ChecklistPanel } from './ChecklistPanel'
 import { CloneDialog, launchedOn } from './CloneDialog'
@@ -32,9 +32,6 @@ import { LaunchProgress } from './LaunchProgress'
 import { MediaPanel } from './MediaPanel'
 import { SettingsPanel } from './SettingsPanel'
 import { useAutosave, type SaveState } from './useAutosave'
-
-// more than any one product has; the launcher needs the whole list to tick from
-const ALL = '1000'
 
 interface VideoRow {
   id: string
@@ -117,12 +114,14 @@ function Launcher({ campaign, onReload }: { campaign: ApiRecord; onReload: () =>
   // the launcher is for campaigns that have not gone out
   const locked = status === 'Launched' || status === 'Cancelled'
 
-  const byProduct = new URLSearchParams({ limit: ALL, ...(productId ? { productId } : {}) })
-  const videos = useFetch<{ records: VideoRow[] }>(`/videos?${byProduct}`)
-  const aiVideos = useFetch<{ records: VideoRow[] }>(`/videos?kind=ai&${byProduct}`)
-  const images = useFetch<{ records: ImageRow[] }>(`/images?${byProduct}`)
-  // newest first
-  const presets = useRecords('ad_presets', { sort: '-createdTime', ...(productId ? { 'where[Product]': productId } : {}) })
+  // the launcher needs the whole list to tick from, however many pages it takes. Only the
+  // campaign's own product is offered; a campaign with no product is offered no media at all.
+  const byProduct = productId ? new URLSearchParams({ productId }) : null
+  const videos = useAllPages<VideoRow>(byProduct && `/videos?${byProduct}`)
+  const aiVideos = useAllPages<VideoRow>(byProduct && `/videos?kind=ai&${byProduct}`)
+  const images = useAllPages<ImageRow>(byProduct && `/images?${byProduct}`)
+  // newest first; '' matches no product, so a campaign without one is offered none
+  const presets = useRecords('ad_presets', { sort: '-createdTime', 'where[Product]': productId ?? '' })
   const profiles = useRecords('profiles', { fields: 'Profile Name,Profile ID,Hidden,hasToken' })
   const managers = useRecords('business_managers', { fields: 'BM Name,BM ID,Hidden,System User ID,hasToken' })
   // '' matches no product, so a campaign without one is offered nothing
@@ -139,18 +138,24 @@ function Launcher({ campaign, onReload }: { campaign: ApiRecord; onReload: () =>
   // A YouTube cut is not an ad, and a video still To Do has no file yet, so neither is offered.
   // A To Do video already ticked in this draft stays listed, so it can be unticked.
   const offered = (row: VideoRow) => row.status !== 'To Do' || draft.videoIds.has(row.id)
+  // highest number first: `Script 1052` before `Script 1011`, and `Script 100` after both
+  const byNumberDescending = (a: Creative, b: Creative) => b.name.localeCompare(a.name, undefined, { numeric: true, sensitivity: 'base' })
   // AI videos sit in their own table and join the same list
-  const allVideos =
-    videos.data && aiVideos.data
+  const allVideos = !productId
+    ? []
+    : videos.data && aiVideos.data
       ? [
-          ...videos.data.records.filter((row) => (row.format ?? '').toLowerCase() !== 'youtube' && offered(row)).map(video('video')),
+          ...videos.data.records.filter(offered).map(video('video')),
           ...aiVideos.data.records.filter(offered).map(video('ai')),
-        ]
+        ].sort(byNumberDescending)
       : undefined
   // a generated image is not in the Images table until it is approved
-  const usableImages = images.data?.records
-    .filter((image) => image.status !== 'New')
-    .map((image): Creative => ({ id: image.id, name: image.name ?? 'Untitled', status: image.status, kind: 'image', url: image.url ?? '' }))
+  const usableImages = !productId
+    ? []
+    : images.data?.records
+        .filter((image) => image.status !== 'New')
+        .map((image): Creative => ({ id: image.id, name: image.name ?? 'Untitled', status: image.status, kind: 'image', url: image.url ?? '' }))
+        .sort(byNumberDescending)
   const chosenVideos = (allVideos ?? []).filter((item) => draft.videoIds.has(item.id))
   const chosenImages = (usableImages ?? []).filter((image) => draft.imageIds.has(image.id))
   const chosen = [...chosenVideos, ...chosenImages]
@@ -161,8 +166,12 @@ function Launcher({ campaign, onReload }: { campaign: ApiRecord; onReload: () =>
   const account = findAsset(assets.accounts.items, draft.adAccountId)
   const groups = checklist(draft, preset, chosen, account)
 
-  // the media links are saved only once both lists are in, because they say which chosen video is an AI video
-  const fields = { ...campaignFields(draft), ...(allVideos && usableImages ? mediaFields(draft, [...allVideos, ...usableImages]) : {}) }
+  // the media links are saved only once both lists are in, because they say which chosen video is an AI video;
+  // with no product there are no lists, and the links already saved are left as they are
+  const fields = {
+    ...campaignFields(draft),
+    ...(productId && allVideos && usableImages ? mediaFields(draft, [...allVideos, ...usableImages]) : {}),
+  }
   const autosave = useAutosave(campaign.id, fields, version, Boolean(run) || locked)
 
   function change(changes: Partial<Draft>) {

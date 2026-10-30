@@ -7,6 +7,7 @@ import { checkbox, Pager } from '../components/DataTable'
 import { button, StatusBadge, StatusChips, Tip } from '../components/ui'
 import { useRecords, useWorkspace, type Product } from '../data'
 import { api, text, type ApiRecord } from '../lib/api'
+import { matchesSearch } from '../lib/search'
 
 const STATUSES = ['New', 'Available', 'Used']
 const PAGE_SIZES = [24, 48, 96]
@@ -146,7 +147,7 @@ export function ImagesTab({ product }: { product?: Product }) {
   const searched = [
     ...(generated.records ?? []).map((record) => toItem(record, true)),
     ...(images.records ?? []).map((record) => toItem(record, false)),
-  ].filter((item) => item.name.toLowerCase().includes(term))
+  ].filter((item) => matchesSearch(term, item.name))
 
   const counts = new Map<string, number>()
   for (const item of searched) counts.set(item.status, (counts.get(item.status) ?? 0) + 1)

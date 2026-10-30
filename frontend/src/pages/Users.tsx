@@ -6,6 +6,7 @@ import { DataTable, type Column } from '../components/DataTable'
 import { button, input, Select, StatusBadge, Tip } from '../components/ui'
 import { useFetch } from '../data'
 import { api } from '../lib/api'
+import { matchesSearch } from '../lib/search'
 
 // the roles the API accepts, exactly as it stores them
 const ROLES = ['Admin', 'Video Editor']
@@ -221,7 +222,7 @@ export function Users() {
   if (!isAdmin) return <p className="text-sm text-neutral-600">Only admins can manage users.</p>
 
   const term = search.trim().toLowerCase()
-  const rows = (data?.users ?? []).filter((user) => `${user.name ?? ''} ${user.email ?? ''}`.toLowerCase().includes(term))
+  const rows = (data?.users ?? []).filter((user) => matchesSearch(term, user.name, user.email))
 
   const columns: Column<User>[] = [
     {

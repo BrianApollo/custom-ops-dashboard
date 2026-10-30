@@ -11,6 +11,7 @@ import { button, Select, StatusBadge, Tip } from '../components/ui'
 import { useFetch, useRecords } from '../data'
 import { api, text, type ApiRecord } from '../lib/api'
 import { profileCred, withCred } from '../lib/facebook'
+import { matchesSearch } from '../lib/search'
 import { ScheduleDialog } from './Schedules'
 
 // Facebook's own names for the date ranges it reports on
@@ -271,7 +272,7 @@ export function Manage() {
       (campaign) =>
         (status === ALL || campaign.status === status) &&
         (account === ALL || campaign.adAccountId === account) &&
-        (campaign.name.toLowerCase().includes(term) || campaign.id.includes(term)),
+        matchesSearch(term, campaign.name, campaign.id),
     )
   // the review covers the ticked campaigns, or every one shown when none is ticked
   const toReview = selected.size ? rows.filter((campaign) => selected.has(campaign.id)) : rows
