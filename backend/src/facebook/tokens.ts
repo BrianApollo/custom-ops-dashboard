@@ -3,7 +3,7 @@ import { currentUser } from '../auth/session'
 import { auditStatement } from '../lib/audit'
 import { batch, nowIso, rows, sql } from '../lib/d1'
 import { ApiError, invalid, notFound } from '../lib/errors'
-import { exchangeToken, FacebookClient, facebookConfig, inspectToken } from '../lib/facebook'
+import { exchangeCode, exchangeToken, FacebookClient, facebookConfig, type FbObject, inspectToken } from '../lib/facebook'
 import { recordId } from '../lib/ids'
 
 // Connecting a Facebook login and looking after the stored tokens. A token
@@ -73,6 +73,87 @@ tokensRouter.post('/connect', async (req, res) => {
   res.json({ profileId, fbUserId: me.id, name: me.name, tokenExpiresOn: expiresOn, created: !existing })
 })
 
+// Takes the code from the system user login popup (a Facebook Login for
+// Business configuration of the system-user kind). Facebook has already made
+// a system user for the app inside the business portfolio the admin chose;
+// the code is swapped for that user's token, which is stored on the matching
+// Business Manager, creating the row if needed. Nothing is created in the
+// business portfolio by hand, so there is no app to add to a system user.
+tokensRouter.post('/connect-system-user', async (req, res) => {
+  const code = req.body?.code
+  if (typeof code !== 'string' || !code) throw invalid('code is required', 'code')
+
+  const { token } = await exchangeCode(code)
+  const info = await inspectToken(token)
+  if (!info.isValid) throw new ApiError(502, 'facebook_error', 'Facebook handed back a token it does not accept')
+  const client = new FacebookClient(token)
+  // a Business Integration System User names its business portfolio itself
+  const me = await client.get('me', { fields: 'id,name,client_business_id' })
+
+  // the one business portfolio the system user belongs to. Asked for in three
+  // ways: the client_business_id above, then the businesses the token may list,
+  // then the business its business_management permission was narrowed to
+  const bmIds = [
+    me.client_business_id as string | undefined,
+    ...(await client.list('me/businesses', { fields: 'id', limit: 100 }).catch(() => [])).map((b) => String(b.id)),
+    ...(info.granularScopes.find((s) => s.scope === 'business_management')?.target_ids ?? []),
+  ].filter((id): id is string => Boolean(id))
+  let business: FbObject | undefined
+  if (bmIds[0]) {
+    // the details are a courtesy; the id alone is enough to store the token
+    business = await client.get(bmIds[0], { fields: 'id,name,verification_status' }).catch(() => ({ id: bmIds[0] }))
+  }
+  if (!business) throw new ApiError(502, 'facebook_error', 'Facebook did not say which business portfolio the system user belongs to')
+
+  const bmId = String(business.id)
+  const bmName = String(business.name ?? bmId)
+  const verification = (business.verification_status as string | undefined) ?? 'not_verified'
+  const expiresOn = info.expiresAt ? day(info.expiresAt * 1000) : null
+
+  const now = nowIso()
+  const [existing] = await rows(sql('SELECT id FROM business_managers WHERE bm_id = ? ORDER BY created_at LIMIT 1', bmId))
+  const bmRecordId = (existing?.id as string | undefined) ?? recordId()
+  await batch([
+    existing
+      ? sql(
+          `UPDATE business_managers SET bm_name = ?, system_user_id = ?, system_user_token = ?, system_user_created = ?, updated_at = ?
+           WHERE id = ?`,
+          bmName,
+          me.id,
+          token,
+          now,
+          now,
+          bmRecordId,
+        )
+      : sql(
+          `INSERT INTO business_managers (id, bm_id, bm_name, bm_status, verification_status, system_user_id, system_user_token,
+             system_user_created, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          bmRecordId,
+          bmId,
+          bmName,
+          business.verification_status ?? 'Active',
+          verification,
+          me.id,
+          token,
+          now,
+          now,
+          now,
+        ),
+    auditStatement(now, currentUser(res).id, 'facebook_system_user_connect', 'business_managers', bmRecordId),
+  ])
+  res.json({
+    bmRecordId,
+    bmId,
+    bmName,
+    systemUserId: me.id,
+    systemUserName: me.name,
+    tokenExpiresOn: expiresOn,
+    scopes: info.scopes,
+    created: !existing,
+  })
+})
+
 async function storedToken(table: 'profiles' | 'business_managers', id: string) {
   const column = table === 'profiles' ? 'permanent_token' : 'system_user_token'
   const [row] = await rows(sql(`SELECT ${column} AS token FROM ${table} WHERE id = ?`, id))
@@ -129,6 +210,14 @@ tokensRouter.get('/profiles/:id/token/check', async (req, res) => {
 tokensRouter.post('/business-managers/:id/system-user-token/validate', async (req, res) => {
   const info = await inspectToken(await storedToken('business_managers', req.params.id))
   res.json({ isValid: info.isValid })
+})
+
+// Shows an admin the stored system user token, for use outside the dashboard.
+// The only place a token goes back out; every look is written to the audit log.
+tokensRouter.get('/business-managers/:id/system-user-token', async (req, res) => {
+  const token = await storedToken('business_managers', req.params.id)
+  await auditStatement(nowIso(), currentUser(res).id, 'facebook_system_user_token_reveal', 'business_managers', req.params.id).run()
+  res.json({ token })
 })
 
 // Saves a system user token pasted in by an admin, after Facebook confirms it

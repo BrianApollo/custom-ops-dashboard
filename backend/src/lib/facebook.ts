@@ -22,7 +22,12 @@ function app() {
   return { id, secret, version: settings.FACEBOOK_API_VERSION ?? 'v21.0' }
 }
 
-export const facebookConfig = () => ({ appId: app().id, apiVersion: app().version })
+export const facebookConfig = () => ({
+  appId: app().id,
+  apiVersion: app().version,
+  // null when the system user login is not set up for this app
+  systemUserConfigId: settings.FACEBOOK_SYSTEM_USER_CONFIG_ID || null,
+})
 
 async function proof(token: string, secret: string) {
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
@@ -76,6 +81,17 @@ export async function exchangeToken(shortLived: string) {
   return { token: body.access_token as string, expiresIn: (body.expires_in as number | undefined) ?? 5_184_000 }
 }
 
+// The code a Facebook Login for Business popup hands back, for the token it
+// stands for. With a system-user configuration that is the business's system
+// user token; Facebook sets no expiry on it unless the configuration says so.
+export async function exchangeCode(code: string) {
+  const { id, secret, version } = app()
+  const query = encode({ client_id: id, client_secret: secret, code })
+  const { body } = await send(`${graph()}/${version}/oauth/access_token?${query}`)
+  if (typeof body.access_token !== 'string') throw new ApiError(502, 'facebook_error', 'Facebook answered the login code with no token')
+  return { token: body.access_token as string, expiresIn: (body.expires_in as number | undefined) ?? null }
+}
+
 export async function inspectToken(token: string) {
   const { id, secret, version } = app()
   const query = encode({ input_token: token, access_token: `${id}|${secret}` })
@@ -87,7 +103,10 @@ export async function inspectToken(token: string) {
     expiresAt: (data.expires_at as number | undefined) || null,
     dataAccessExpiresAt: (data.data_access_expires_at as number | undefined) || null,
     scopes: (data.scopes as string[] | undefined) ?? [],
+    // each permission with the ids it was granted for, when Facebook narrows it
+    granularScopes: (data.granular_scopes as { scope: string; target_ids?: string[] }[] | undefined) ?? [],
     userId: (data.user_id as string | undefined) ?? null,
+    type: (data.type as string | undefined) ?? null,
   }
 }
 
