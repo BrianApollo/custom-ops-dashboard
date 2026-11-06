@@ -20,6 +20,16 @@ export const withCred = (path: string, cred: string, params: Record<string, stri
   return query ? `${path}?${query}` : path
 }
 
+// Ads Manager on the Ads tab, with the campaign and its ad sets selected. The business is
+// left out when it is not known; Ads Manager then opens under whichever business is current.
+export function adsManagerUrl({ adAccountId, businessId, campaignId, adSetIds = [] }: { adAccountId: string; businessId?: string | null; campaignId: string; adSetIds?: string[] }) {
+  const query = new URLSearchParams({ act: adAccountId.replace(/^act_/, '') })
+  if (businessId) query.set('business_id', businessId)
+  query.set('selected_campaign_ids', campaignId)
+  if (adSetIds.length) query.set('selected_adset_ids', adSetIds.join(','))
+  return `https://adsmanager.facebook.com/adsmanager/manage/ads?${query}`
+}
+
 export type FacebookKind = 'ad-accounts' | 'pages' | 'pixels'
 
 // `source` is null while something the list depends on has not been chosen yet.

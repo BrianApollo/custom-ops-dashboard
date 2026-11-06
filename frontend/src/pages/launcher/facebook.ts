@@ -19,6 +19,8 @@ export interface AdAccount extends Asset {
   currency?: string
   // the zone Facebook reads the ad set's start time in
   timezoneName?: string
+  // the business manager that owns the account; null for a personal one
+  businessId?: string | null
 }
 
 export interface AssetList<T> {

@@ -12,7 +12,7 @@ import { parseSnapshot, type FbState } from '../components/campaign-view/shared'
 import { button, Select, StatusBadge, Tip } from '../components/ui'
 import { useFetch, useRecords, useWorkspace } from '../data'
 import { text, type ApiRecord } from '../lib/api'
-import { profileCred, withCred } from '../lib/facebook'
+import { adsManagerUrl, profileCred, withCred } from '../lib/facebook'
 
 // the Select cannot hold an empty value, so this stands for the Master Profile
 const MASTER = 'master'
@@ -38,11 +38,6 @@ function View({ record, reload }: { record: ApiRecord; reload: () => void }) {
   const product = products.find((p) => p.id === productId)
   const fbCampaignId = text(record, 'FB Campaign ID')
   const adAccountId = text(record, 'FB Ad Account ID') || text(record, 'Ad Acc Used')
-  // Ads Manager opened on this campaign, as the launcher links it
-  const adsManagerUrl =
-    adAccountId && fbCampaignId
-      ? `https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=${adAccountId.replace(/^act_/, '')}&selected_campaign_ids=${fbCampaignId}`
-      : ''
   const [copied, setCopied] = useState(false)
   const launchProfileId = text(record, 'Launch Profile ID')
   const bmId = text(record, 'System User BM ID')
@@ -57,6 +52,16 @@ function View({ record, reload }: { record: ApiRecord; reload: () => void }) {
   const selected = choice ?? (settled ? (masters.records?.length || !launchProfileId ? MASTER : launchProfileId) : null)
   const cred = selected === null ? null : selected === MASTER ? '' : selected.startsWith('bm:') ? selected : profileCred(selected)
   const fb = useFetch<FbState>(fbCampaignId && cred !== null ? withCred(`/facebook/campaigns/${fbCampaignId}`, cred) : null)
+  // the business that owns the ad account, for the Ads Manager link
+  const accounts = useFetch<{ adAccounts: { id: string; accountId: string; businessId: string | null }[] }>(
+    adAccountId && cred !== null ? withCred('/facebook/ad-accounts', cred) : null,
+  )
+  const businessId = accounts.data?.adAccounts.find((a) => a.id === adAccountId || a.accountId === adAccountId.replace(/^act_/, ''))?.businessId
+  // Ads Manager opened on this campaign and its ad sets, as the launcher links it
+  const adsManager =
+    adAccountId && fbCampaignId
+      ? adsManagerUrl({ adAccountId, businessId, campaignId: fbCampaignId, adSetIds: fb.data?.adSets.map((adSet) => adSet.id) })
+      : ''
 
   const profileNames = new Map((profiles.records ?? []).map((profile) => [profile.id, text(profile, 'Profile Name') || text(profile, 'Profile ID')]))
   const profileOptions = [
@@ -132,9 +137,9 @@ function View({ record, reload }: { record: ApiRecord; reload: () => void }) {
               </button>
             </Tip>
           </div>
-          {adsManagerUrl && (
+          {adsManager && (
             <div className="flex items-center gap-1">
-              <a href={adsManagerUrl} target="_blank" rel="noreferrer" className={button.secondary}>
+              <a href={adsManager} target="_blank" rel="noreferrer" className={button.secondary}>
                 Ads Manager
                 <ExternalLink className="size-4" />
               </a>
@@ -143,7 +148,7 @@ function View({ record, reload }: { record: ApiRecord; reload: () => void }) {
                 <button
                   aria-label="Copy Ads Manager link"
                   onClick={() =>
-                    void navigator.clipboard.writeText(adsManagerUrl).then(() => {
+                    void navigator.clipboard.writeText(adsManager).then(() => {
                       setCopied(true)
                       setTimeout(() => setCopied(false), 1500)
                     })

@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import { api, ApiError } from '../../lib/api'
-import { withCred } from '../../lib/facebook'
+import { adsManagerUrl as adsManagerLink, withCred } from '../../lib/facebook'
 
 // The launch itself: library check, video uploads, campaign, ad set, then one ad
 // per media item. Every Facebook call goes through our API.
@@ -53,7 +53,7 @@ export interface LaunchPlan {
   campaignId: string
   cred: string
   token: { kind: 'profile' | 'bm'; recordId: string; name: string; bmId?: string; systemUserId?: string }
-  adAccount: Named & { timezoneName: string; currency: string }
+  adAccount: Named & { timezoneName: string; currency: string; businessId?: string | null }
   page: Named
   pixel: Named
   name: string
@@ -874,6 +874,11 @@ export function onFacebook(run: LaunchRun): string[] {
   return lines
 }
 
-// Ads Manager, opened on the campaign
+// Ads Manager, opened on the campaign and its ad set
 export const adsManagerUrl = (run: LaunchRun) =>
-  `https://adsmanager.facebook.com/adsmanager/manage/campaigns?act=${run.plan.adAccount.id.replace(/^act_/, '')}&selected_campaign_ids=${run.fbCampaignId}`
+  adsManagerLink({
+    adAccountId: run.plan.adAccount.id,
+    businessId: run.plan.adAccount.businessId,
+    campaignId: run.fbCampaignId ?? '',
+    adSetIds: run.fbAdSetId ? [run.fbAdSetId] : [],
+  })

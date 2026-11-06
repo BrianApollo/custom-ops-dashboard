@@ -12,7 +12,7 @@ const DATE_PRESETS = [
   'this_month', 'last_month', 'this_week_mon_today', 'last_week_mon_sun', 'maximum',
 ]
 
-const AD_ACCOUNT_FIELDS = 'id,name,account_id,account_status,currency,timezone_name,business_name'
+const AD_ACCOUNT_FIELDS = 'id,name,account_id,account_status,currency,timezone_name,business_name,business{id}'
 export const CAMPAIGN_FIELDS =
   'id,name,status,daily_budget,lifetime_budget,spend_cap,bid_strategy,objective,created_time,updated_time'
 // the compliance fields let a launcher confirm Facebook kept what it was sent
@@ -32,6 +32,8 @@ const shapeAccount = (a: FbObject) => ({
   currency: a.currency,
   timezoneName: a.timezone_name,
   businessName: a.business_name,
+  // the business manager that owns the account; null for a personal one
+  businessId: (a.business?.id as string | undefined) ?? null,
 })
 
 const adAccounts = async (client: FacebookClient) =>

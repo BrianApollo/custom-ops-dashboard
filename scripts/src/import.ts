@@ -8,6 +8,9 @@
 //                                       add and update those tables only; delete nothing
 //   npm run import -- --first-link      keep the first record of a single link that holds several
 //   npm run import -- --skip-attachments
+//   npm run import -- --allow-empty-mismatches
+//                                       a field the map does not know, or whose type
+//                                       changed, is only noted when no record holds a value in it
 //
 // Airtable stays the source until cutover, so this is safe to run again: rows
 // are upserted by id, link tables are replaced whole, and rows that are gone
@@ -50,6 +53,8 @@ const SECRET_COLUMNS = new Set([
 
 const problems: string[] = []
 const notes: string[] = []
+// with --allow-empty-mismatches, schema problems wait here until the records show whether the field is empty
+const mismatches: { table: TableMapping; field: string; problem: string }[] = []
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 // ---------------------------------------------------------------- Airtable
@@ -143,8 +148,10 @@ function checkSchema(live: AirtableTable[]) {
       continue
     }
     const liveFields = new Map(found.fields.map((f) => [f.name, f.type]))
+    const mismatch = (field: string, problem: string) =>
+      flag('--allow-empty-mismatches') ? mismatches.push({ table, field, problem }) : problems.push(problem)
     for (const name of liveFields.keys()) {
-      if (!table.fields[name]) problems.push(`${table.airtableName}: field "${name}" exists in Airtable but not in the field map`)
+      if (!table.fields[name]) mismatch(name, `${table.airtableName}: field "${name}" exists in Airtable but not in the field map`)
     }
     const absent: string[] = []
     for (const [name, field] of Object.entries(table.fields)) {
@@ -153,10 +160,24 @@ function checkSchema(live: AirtableTable[]) {
       const type = liveFields.get(name)
       if (!type) absent.push(name)
       else if (!expectedTypes(field).includes(type)) {
-        problems.push(`${table.airtableName}: field "${name}" is now type ${type}, which the map does not expect`)
+        mismatch(name, `${table.airtableName}: field "${name}" is now type ${type}, which the map does not expect`)
       }
     }
     if (absent.length) notes.push(`${table.airtableName}: not in this base, left empty: ${absent.join(', ')}`)
+  }
+}
+
+// A mismatched field that no record fills loses nothing when it is read as the
+// map says, so it becomes a note; one that holds data still stops the import.
+function settleMismatches() {
+  for (const { table, field, problem } of mismatches) {
+    const records = JSON.parse(readFileSync(inRun(`${table.d1Table}.json`), 'utf8')) as AirtableRecord[]
+    const filled = records.filter((r) => {
+      const value = r.fields[field]
+      return value !== undefined && value !== null && value !== '' && !(Array.isArray(value) && !value.length)
+    }).length
+    if (filled) problems.push(`${problem} (${filled} record(s) hold a value)`)
+    else notes.push(`${problem}; no record holds a value, so it was read as the map says`)
   }
 }
 
@@ -842,6 +863,7 @@ async function sync(names: string[]) {
 console.log(`Run folder: ${runDir}`)
 const schema = option('--from') ? (JSON.parse(readFileSync(inRun('schema.json'), 'utf8')) as AirtableTable[]) : await exportBase()
 if (option('--from')) checkSchema(schema)
+if (!problems.length) settleMismatches()
 
 if (!problems.length) transform(schema)
 

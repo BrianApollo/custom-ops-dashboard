@@ -395,7 +395,7 @@ function Launcher({ campaign, onReload }: { campaign: ApiRecord; onReload: () =>
                 systemUserId: manager ? text(manager, 'System User ID') : undefined,
               }
             : { kind: 'profile', recordId: draft.profileId, name: profile ? text(profile, 'Profile Name') || draft.profileId : draft.profileId },
-        adAccount: { id: account.id, name: account.name, timezoneName: account.timezoneName ?? '', currency },
+        adAccount: { id: account.id, name: account.name, timezoneName: account.timezoneName ?? '', currency, businessId: account.businessId },
         page: named(assets.pages.items, draft.pageId),
         pixel: named(assets.pixels.items, draft.pixelId),
         name: draft.name.trim(),
