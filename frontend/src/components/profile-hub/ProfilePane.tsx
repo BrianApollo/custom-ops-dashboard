@@ -40,14 +40,14 @@ interface Props {
 }
 
 // Any value on the page copies with a click; nothing is masked
-function CopyValue({ value, mono, muted, className = '' }: { value: string; mono?: boolean; muted?: boolean; className?: string }) {
+function CopyValue({ value, display, mono, muted, className = '' }: { value: string; display?: string; mono?: boolean; muted?: boolean; className?: string }) {
   const [copied, setCopied] = useState(false)
   useEffect(() => {
     if (!copied) return
     const timer = setTimeout(() => setCopied(false), 1200)
     return () => clearTimeout(timer)
   }, [copied])
-  if (!value) return <span className={`flex min-h-9 flex-1 items-center rounded-md px-2.5 text-sm text-neutral-400 italic ${className}`}>{muted ? 'Not supplied' : 'Not set'}</span>
+  if (!value) return <span className={`flex min-h-9 flex-1 items-center rounded-md border px-2.5 text-sm text-neutral-400 italic ${className}`}>{muted ? 'Not supplied' : 'Not set'}</span>
   return (
     <Tip label={copied ? 'Copied' : 'Click to copy'}>
       <button
@@ -55,7 +55,7 @@ function CopyValue({ value, mono, muted, className = '' }: { value: string; mono
         onClick={() => navigator.clipboard.writeText(value).then(() => setCopied(true))}
         className={`flex min-h-9 min-w-0 flex-1 items-center rounded-md border px-2.5 py-1.5 text-left text-sm break-all hover:border-blue-700 hover:bg-white focus-visible:outline-2 focus-visible:outline-blue-700 ${mono ? 'font-mono text-[13px]' : ''} ${className}`}
       >
-        <span className="line-clamp-2">{value}</span>
+        <span className="line-clamp-2">{display ?? value}</span>
       </button>
     </Tip>
   )
@@ -80,6 +80,13 @@ function Marker({ current, received }: { current: string; received: string | und
       <Check className="size-4 shrink-0 text-emerald-700" aria-label="Changed" />
     </Tip>
   )
+}
+
+// cookies are long; the box shows the c_user cookie and the length, a click copies everything
+const cookieSummary = (cookies: string) => {
+  if (!cookies) return ''
+  const user = /c_user=\d+/.exec(cookies)?.[0]
+  return `${user ?? cookies.slice(0, 24)} · ${cookies.length.toLocaleString()} chars`
 }
 
 const inputClass =
@@ -160,7 +167,7 @@ export function ProfilePane({ record, draft, onDraft, onSaved, linkNames }: Prop
   // ---- the Received | Current table ----
   const receivedCell = (key: ReceivedKey, mono = false, multiline = false) =>
     locked || Object.keys(received).length ? (
-      <CopyValue value={received[key] ?? ''} mono={mono} muted className="border-transparent bg-white/70 hover:border-blue-700" />
+      <CopyValue value={received[key] ?? ''} display={key === 'cookies' ? cookieSummary(received.cookies ?? '') : undefined} mono={mono} muted className="border-transparent bg-[#f3f6fa] hover:border-blue-700" />
     ) : multiline ? (
       <textarea rows={2} value={receivedDraft[key] ?? ''} onChange={(e) => setReceivedDraft({ ...receivedDraft, [key]: e.target.value })} className={`${inputClass} font-mono text-[13px]`} />
     ) : (
@@ -193,17 +200,16 @@ export function ProfilePane({ record, draft, onDraft, onSaved, linkNames }: Prop
   )
 
   const row = (label: string, receivedNode: ReactNode, currentNode: ReactNode) => (
-    <div className="grid grid-cols-[170px_minmax(0,1fr)_minmax(0,1fr)] items-stretch">
-      <span className="flex items-center px-4 py-2 text-sm text-neutral-600">{label}</span>
-      <div className="flex min-w-0 items-center border-x border-neutral-100 bg-[#f6f8fb] px-3 py-2">{receivedNode}</div>
-      <div className="flex min-w-0 items-center px-3 py-2">{currentNode}</div>
+    <div className="grid grid-cols-[170px_minmax(0,1fr)_minmax(0,1fr)] items-center gap-x-5 px-4 py-1.5">
+      <span className="text-sm text-neutral-700">{label}</span>
+      <div className="flex min-w-0 items-center">{receivedNode}</div>
+      <div className="flex min-w-0 items-center">{currentNode}</div>
     </div>
   )
   // each credential group is its own boxed card, as on the mockup
   const group = (caption: string, rows: ReactNode) => (
-    <div className="mx-4 my-3 overflow-hidden rounded-lg border border-neutral-200">
-      <p className="px-4 pt-2.5 pb-1 text-[11px] font-semibold tracking-wider text-neutral-500 uppercase">{caption}</p>
-      <div className="divide-y divide-neutral-100">{rows}</div>
+    <div className="mx-4 my-3 rounded-lg border border-neutral-200 py-1.5" aria-label={caption}>
+      {rows}
     </div>
   )
 
@@ -212,30 +218,41 @@ export function ProfilePane({ record, draft, onDraft, onSaved, linkNames }: Prop
 
   const stepper = (() => {
     const steps = [
-      { key: 'received', label: 'Received', sub: locked ? `locked ${formatDate(stored(F.lockedAt))}` : 'not recorded' },
-      { key: 'rotating', label: state === 'rotating' || state === 'received' ? `Rotating ${done}/${total}` : 'Rotating', sub: `${total - done} still as delivered` },
+      { key: 'received', label: 'Received', sub: locked ? `Locked ${formatDate(stored(F.lockedAt))}` : 'not recorded yet' },
+      { key: 'rotating', label: state === 'rotating' || state === 'received' ? `Rotating ${done}/${total}` : 'Rotating', sub: total ? `${total - done} still as delivered` : 'credentials vs delivered' },
       { key: 'rotated', label: 'Fully rotated', sub: 'all credentials changed' },
-      { key: 'live', label: 'Live', sub: isLive(record) ? `since ${formatDate(stored(F.setupCompletedOn))}` : 'Verify & complete' },
+      { key: 'live', label: 'Live', sub: isLive(record) ? `since ${formatDate(stored(F.setupCompletedOn))}` : 'verified & complete' },
     ]
     const order = ['received', 'rotating', 'rotated', 'live']
     const at = state === 'unrecorded' ? -1 : state === 'received' ? 1 : order.indexOf(state)
+    const dead = isDead(record)
     return (
-      <ol className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+      <ol className="flex items-center gap-3 text-sm">
         {steps.map((step, i) => {
-          const complete = i < at || (state === 'live' && i <= 3)
-          const now = i === at && state !== 'live'
+          const complete = !dead && (i < at || state === 'live')
+          const now = !dead && i === at && state !== 'live'
           return (
-            <li key={step.key} className="flex items-center gap-2">
-              {i > 0 && <span className="h-px w-6 bg-neutral-300" />}
-              <span className={`flex items-center gap-1.5 ${complete ? 'text-emerald-800' : now ? 'font-semibold text-blue-800' : 'text-neutral-400'}`}>
-                <span className={`flex size-4 items-center justify-center rounded-full text-[10px] ${complete ? 'bg-emerald-600 text-white' : now ? 'bg-blue-700 text-white' : 'border border-neutral-300'}`}>{complete ? <Check className="size-3" strokeWidth={3} /> : i + 1}</span>
-                {step.label}
-                {(now || (complete && i === 0)) && <span className="text-xs font-normal text-neutral-500">· {step.sub}</span>}
+            <li key={step.key} className={`flex items-center gap-3 ${i < steps.length - 1 ? 'flex-1' : ''}`}>
+              <span className="flex items-center gap-2.5">
+                <span className={`flex size-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold ${complete ? 'bg-emerald-600 text-white' : now ? 'bg-blue-700 text-white' : 'border border-neutral-300 text-neutral-400'}`}>
+                  {complete ? <Check className="size-3.5" strokeWidth={3} /> : i + 1}
+                </span>
+                <span className="leading-tight">
+                  <span className={`block font-medium ${complete ? 'text-neutral-900' : now ? 'text-neutral-900' : 'text-neutral-400'}`}>{step.label}</span>
+                  <span className={`block text-xs ${complete || now ? 'text-neutral-500' : 'text-neutral-400'}`}>{step.sub}</span>
+                </span>
               </span>
+              {i < steps.length - 1 && <span className={`h-0.5 flex-1 rounded ${complete ? 'bg-emerald-600' : 'bg-neutral-200'}`} />}
             </li>
           )
         })}
-        {isDead(record) && <li className="ml-auto text-xs font-medium text-red-700">Dead · {stored(F.status)}</li>}
+        <li className={`ml-6 flex items-center gap-2.5 ${dead ? '' : 'opacity-40'}`}>
+          <span className={`flex size-6 items-center justify-center rounded-full text-[11px] font-semibold ${dead ? 'bg-red-600 text-white' : 'border border-neutral-300 text-neutral-400'}`}>×</span>
+          <span className="leading-tight">
+            <span className={`block font-medium ${dead ? 'text-red-700' : 'text-neutral-400'}`}>Dead</span>
+            <span className="block text-xs text-neutral-400">{dead ? stored(F.status) : 'Inactive / Banned'}</span>
+          </span>
+        </li>
       </ol>
     )
   })()
@@ -361,7 +378,7 @@ export function ProfilePane({ record, draft, onDraft, onSaved, linkNames }: Prop
 
       {/* credentials */}
       <section className="rounded-lg border border-neutral-200 bg-white">
-        <div className="grid grid-cols-[170px_minmax(0,1fr)_minmax(0,1fr)] gap-x-3 border-b border-neutral-200 px-4 py-3">
+        <div className="grid grid-cols-[170px_minmax(0,1fr)_minmax(0,1fr)] gap-x-5 border-b border-neutral-200 px-8 py-3">
           <span />
           <div className="border-t-2 border-blue-700 pt-2">
             <p className="flex items-center gap-1.5 text-sm font-semibold">
@@ -400,7 +417,7 @@ export function ProfilePane({ record, draft, onDraft, onSaved, linkNames }: Prop
             )}
             {row('Facebook Password', receivedCell('password', true), currentCell(F.fbPassword, 'password', true))}
             {row('2FA Key', receivedCell('twoFaKey', true), currentCell(F.twoFa, 'twoFaKey', true))}
-            {row('Recovery Codes', <CopyValue value="" muted className="border-transparent" />, currentCell(F.recoveryCodes, undefined, true, true))}
+            {row('Recovery Codes', <CopyValue value="" muted className="border border-dashed border-neutral-200" />, currentCell(F.recoveryCodes, undefined, true, true))}
             </>,
           )}
           {group(
