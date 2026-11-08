@@ -1,4 +1,4 @@
-import { Check, ChevronDown, CircleAlert, Clock, Lock, Pencil } from 'lucide-react'
+import { Check, ChevronDown, CircleAlert, Clock, Copy, Lock, Pencil } from 'lucide-react'
 import { Popover } from 'radix-ui'
 import { useEffect, useState, type ReactNode } from 'react'
 import { useAuth } from '../../auth'
@@ -53,9 +53,12 @@ function CopyValue({ value, display, mono, muted, className = '' }: { value: str
       <button
         type="button"
         onClick={() => navigator.clipboard.writeText(value).then(() => setCopied(true))}
-        className={`flex min-h-9 min-w-0 flex-1 items-center rounded-md border px-2.5 py-1.5 text-left text-sm break-all hover:border-blue-700 hover:bg-white focus-visible:outline-2 focus-visible:outline-blue-700 ${mono ? 'font-mono text-[13px]' : ''} ${className}`}
+        className={`group relative flex min-h-9 min-w-0 flex-1 items-center rounded-md border py-1.5 pr-8 pl-2.5 text-left text-sm break-all hover:border-blue-700 hover:bg-white focus-visible:outline-2 focus-visible:outline-blue-700 ${mono ? 'font-mono text-[13px]' : ''} ${className}`}
       >
         <span className="line-clamp-2">{display ?? value}</span>
+        <span className="absolute top-1/2 right-2 flex size-5 -translate-y-1/2 items-center justify-center rounded text-neutral-500 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+          {copied ? <Check className="size-3.5 text-emerald-700" /> : <Copy className="size-3.5" />}
+        </span>
       </button>
     </Tip>
   )
@@ -95,6 +98,8 @@ const inputClass =
 export function ProfilePane({ record, draft, onDraft, onSaved, linkNames }: Props) {
   const { expire } = useAuth()
   const [busy, setBusy] = useState(false)
+  // the Current column is read-only until Edit is pressed, so nothing is changed by accident
+  const [editing, setEditing] = useState(Object.keys(draft).length > 0)
   const [error, setError] = useState<string>()
   const [editingName, setEditingName] = useState(false)
   const [name, setName] = useState('')
@@ -144,6 +149,7 @@ export function ProfilePane({ record, draft, onDraft, onSaved, linkNames }: Prop
     const sent = { ...draft }
     if (await patch(fields)) {
       onDraft((draft) => Object.fromEntries(Object.entries(draft).filter(([key, value]) => !(key in sent && sent[key] === value))))
+      setEditing(false)
     }
   }
 
@@ -176,7 +182,9 @@ export function ProfilePane({ record, draft, onDraft, onSaved, linkNames }: Prop
 
   const currentCell = (field: string, receivedKey: ReceivedKey | undefined, mono = false, multiline = false) => (
     <div className="flex min-w-0 flex-1 items-center gap-2">
-      {multiline ? (
+      {!editing ? (
+        <CopyValue value={current(field)} mono={mono} className="border-neutral-200 bg-white" />
+      ) : multiline ? (
         <textarea
           rows={2}
           value={current(field)}
@@ -386,11 +394,18 @@ export function ProfilePane({ record, draft, onDraft, onSaved, linkNames }: Prop
             </p>
             <p className="text-xs text-neutral-500">{locked ? `Locked ${formatDate(stored(F.lockedAt))} · read only` : Object.keys(received).length ? 'Read only' : 'Not recorded yet. Fill in and save once; it locks.'}</p>
           </div>
-          <div className="pt-2">
-            <p className="flex items-center gap-1.5 text-sm font-semibold">
-              <Pencil className="size-3.5 text-neutral-500" /> Current
-            </p>
-            <p className="text-xs text-neutral-500">What the profile uses today</p>
+          <div className="flex items-start justify-between gap-3 pt-2">
+            <div>
+              <p className="flex items-center gap-1.5 text-sm font-semibold">
+                <Pencil className="size-3.5 text-neutral-500" /> Current
+              </p>
+              <p className="text-xs text-neutral-500">{editing ? 'Editing. Save or discard when done.' : 'What the profile uses today · hover a value to copy it'}</p>
+            </div>
+            {!editing && (
+              <button type="button" onClick={() => setEditing(true)} className={`${button.secondary} h-8 px-2.5 text-xs`}>
+                <Pencil className="size-3.5" /> Edit
+              </button>
+            )}
           </div>
         </div>
 
@@ -402,6 +417,9 @@ export function ProfilePane({ record, draft, onDraft, onSaved, linkNames }: Prop
               'Facebook Email',
               receivedCell('email'),
               <div className="flex min-w-0 flex-1 items-center gap-2">
+                {!editing ? (
+                  <CopyValue value={fbEmailNow} display={`${FB_EMAIL_SOURCES.find((o) => o.value === source)?.label ?? 'Received'} · ${fbEmailNow || 'not set'}`} className="border-neutral-200 bg-white" />
+                ) : (
                 <Select
                   label="Facebook email source"
                   value={source}
@@ -412,6 +430,7 @@ export function ProfilePane({ record, draft, onDraft, onSaved, linkNames }: Prop
                   })}
                   className={`h-9 min-w-0 flex-1 ${F.fbEmailSource in draft ? 'border-amber-500 ring-1 ring-amber-500' : ''}`}
                 />
+                )}
                 <Marker current={fbEmailNow} received={received.email} />
               </div>,
             )}
@@ -450,7 +469,7 @@ export function ProfilePane({ record, draft, onDraft, onSaved, linkNames }: Prop
 
         <div className="flex flex-wrap items-center gap-2 border-t border-neutral-200 px-4 py-3">
           <span className="mr-auto text-xs text-neutral-500">
-            Click any value to copy it · last change {formatDate(record.updatedTime, true)}
+            Hover a value to copy it · last change {formatDate(record.updatedTime, true)}
           </span>
           {error && (
             <p role="alert" className="w-full text-sm text-red-700">
@@ -462,12 +481,28 @@ export function ProfilePane({ record, draft, onDraft, onSaved, linkNames }: Prop
               Save Received &amp; lock
             </button>
           )}
-          <button type="button" disabled={!dirty || busy} onClick={() => onDraft(() => ({}))} className={button.secondary}>
-            Discard
-          </button>
-          <button type="button" disabled={!dirty || busy} onClick={() => void saveCurrent()} className={button.primary}>
-            {busy ? 'Saving…' : 'Save Current'}
-          </button>
+          {editing ? (
+            <>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  onDraft(() => ({}))
+                  setEditing(false)
+                }}
+                className={button.secondary}
+              >
+                {dirty ? 'Discard' : 'Done'}
+              </button>
+              <button type="button" disabled={!dirty || busy} onClick={() => void saveCurrent()} className={button.primary}>
+                {busy ? 'Saving…' : 'Save Current'}
+              </button>
+            </>
+          ) : (
+            <button type="button" onClick={() => setEditing(true)} className={button.secondary}>
+              <Pencil className="size-3.5" /> Edit Current
+            </button>
+          )}
         </div>
       </section>
 
