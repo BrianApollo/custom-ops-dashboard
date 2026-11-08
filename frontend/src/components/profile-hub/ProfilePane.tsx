@@ -160,7 +160,7 @@ export function ProfilePane({ record, draft, onDraft, onSaved, linkNames }: Prop
   // ---- the Received | Current table ----
   const receivedCell = (key: ReceivedKey, mono = false, multiline = false) =>
     locked || Object.keys(received).length ? (
-      <CopyValue value={received[key] ?? ''} mono={mono} muted className="border-transparent bg-[#eef2f7] hover:border-blue-700" />
+      <CopyValue value={received[key] ?? ''} mono={mono} muted className="border-transparent bg-white/70 hover:border-blue-700" />
     ) : multiline ? (
       <textarea rows={2} value={receivedDraft[key] ?? ''} onChange={(e) => setReceivedDraft({ ...receivedDraft, [key]: e.target.value })} className={`${inputClass} font-mono text-[13px]`} />
     ) : (
@@ -193,10 +193,17 @@ export function ProfilePane({ record, draft, onDraft, onSaved, linkNames }: Prop
   )
 
   const row = (label: string, receivedNode: ReactNode, currentNode: ReactNode) => (
-    <div className="grid grid-cols-[150px_minmax(0,1fr)_minmax(0,1fr)] items-start gap-x-3 px-4 py-1.5">
-      <span className="pt-2 text-sm text-neutral-600">{label}</span>
-      <div className="flex min-w-0">{receivedNode}</div>
-      <div className="flex min-w-0">{currentNode}</div>
+    <div className="grid grid-cols-[170px_minmax(0,1fr)_minmax(0,1fr)] items-stretch">
+      <span className="flex items-center px-4 py-2 text-sm text-neutral-600">{label}</span>
+      <div className="flex min-w-0 items-center border-x border-neutral-100 bg-[#f6f8fb] px-3 py-2">{receivedNode}</div>
+      <div className="flex min-w-0 items-center px-3 py-2">{currentNode}</div>
+    </div>
+  )
+  // each credential group is its own boxed card, as on the mockup
+  const group = (caption: string, rows: ReactNode) => (
+    <div className="mx-4 my-3 overflow-hidden rounded-lg border border-neutral-200">
+      <p className="px-4 pt-2.5 pb-1 text-[11px] font-semibold tracking-wider text-neutral-500 uppercase">{caption}</p>
+      <div className="divide-y divide-neutral-100">{rows}</div>
     </div>
   )
 
@@ -354,7 +361,7 @@ export function ProfilePane({ record, draft, onDraft, onSaved, linkNames }: Prop
 
       {/* credentials */}
       <section className="rounded-lg border border-neutral-200 bg-white">
-        <div className="grid grid-cols-[150px_minmax(0,1fr)_minmax(0,1fr)] gap-x-3 border-b border-neutral-200 px-4 py-3">
+        <div className="grid grid-cols-[170px_minmax(0,1fr)_minmax(0,1fr)] gap-x-3 border-b border-neutral-200 px-4 py-3">
           <span />
           <div className="border-t-2 border-blue-700 pt-2">
             <p className="flex items-center gap-1.5 text-sm font-semibold">
@@ -370,9 +377,10 @@ export function ProfilePane({ record, draft, onDraft, onSaved, linkNames }: Prop
           </div>
         </div>
 
-        <div className="divide-y divide-neutral-100 py-1">
-          <div className="py-1.5">
-            <p className="px-4 pt-1 pb-0.5 text-[11px] font-semibold tracking-wider text-neutral-500 uppercase">Facebook</p>
+        <div className="py-1">
+          {group(
+            'Facebook',
+            <>
             {row(
               'Facebook Email',
               receivedCell('email'),
@@ -392,20 +400,26 @@ export function ProfilePane({ record, draft, onDraft, onSaved, linkNames }: Prop
             )}
             {row('Facebook Password', receivedCell('password', true), currentCell(F.fbPassword, 'password', true))}
             {row('2FA Key', receivedCell('twoFaKey', true), currentCell(F.twoFa, 'twoFaKey', true))}
-            {row('Recovery Codes', <CopyValue value="" muted className="border-transparent bg-[#eef2f7]" />, currentCell(F.recoveryCodes, undefined, true, true))}
-          </div>
-          <div className="py-1.5">
-            <p className="px-4 pt-1 pb-0.5 text-[11px] font-semibold tracking-wider text-neutral-500 uppercase">Mailbox</p>
+            {row('Recovery Codes', <CopyValue value="" muted className="border-transparent" />, currentCell(F.recoveryCodes, undefined, true, true))}
+            </>,
+          )}
+          {group(
+            'Mailbox',
+            <>
             {row('Email', receivedCell('email'), currentCell(F.mailboxEmail, 'email'))}
             {row('Email Password', receivedCell('emailPassword', true), currentCell(F.mailboxPassword, 'emailPassword', true))}
-          </div>
-          <div className="py-1.5">
-            <p className="px-4 pt-1 pb-0.5 text-[11px] font-semibold tracking-wider text-neutral-500 uppercase">Recovery mailbox</p>
+            </>,
+          )}
+          {group(
+            'Recovery mailbox',
+            <>
             {row('Recovery Email', receivedCell('recoveryEmail'), currentCell(F.recoveryEmail, 'recoveryEmail'))}
             {row('Recovery Email Password', receivedCell('recoveryEmailPassword', true), currentCell(F.recoveryPassword, 'recoveryEmailPassword', true))}
-          </div>
-          <div className="py-1.5">
-            <p className="px-4 pt-1 pb-0.5 text-[11px] font-semibold tracking-wider text-neutral-500 uppercase">Other</p>
+            </>,
+          )}
+          {group(
+            'Other',
+            <>
             {row('Proxy', receivedCell('proxy', true), currentCell(F.proxy, 'proxy', true))}
             {row(
               'Cookies',
@@ -413,7 +427,8 @@ export function ProfilePane({ record, draft, onDraft, onSaved, linkNames }: Prop
               <span className="flex min-h-9 flex-1 items-center px-2.5 text-sm text-neutral-400 italic">Superseded once the password changes.</span>,
             )}
             {row('Notes', <span className="flex min-h-9 flex-1 items-center px-2.5 text-sm text-neutral-400 italic">—</span>, currentCell(F.notes, undefined, false, true))}
-          </div>
+            </>,
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-2 border-t border-neutral-200 px-4 py-3">

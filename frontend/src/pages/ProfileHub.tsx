@@ -77,7 +77,7 @@ function Hub() {
 
   return (
     <>
-      <div className="flex flex-wrap items-start justify-between gap-4">
+      <div className="flex max-w-[1500px] flex-wrap items-start justify-between gap-4">
         <h1 className="text-2xl font-semibold tracking-tight">Profile Hub</h1>
         <Tip label="Refresh">
           <button onClick={refresh} disabled={list.loading} aria-label="Refresh" className={button.icon}>
@@ -91,7 +91,7 @@ function Hub() {
       ) : !list.records ? (
         <p className="mt-6 text-sm text-neutral-500">Loading…</p>
       ) : (
-        <div className="mt-4 flex items-start gap-4">
+        <div className="mt-4 flex max-w-[1500px] items-start gap-4">
           <div className="sticky top-6 h-[calc(100vh-7rem)]">
             <ProfileList
               records={records}
