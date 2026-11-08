@@ -5,6 +5,7 @@ import { batch, IN_LIST, list, nowIso, rows, sql } from '../lib/d1'
 import { badRequest, conflict, forbidden, invalid, notFound } from '../lib/errors'
 import { recordId, RECORD_ID } from '../lib/ids'
 import { ruleFor } from '../permissions'
+import { lockReceived } from './profiles'
 import { countStatement, inOrder, listStatement, parseListQuery, project, readableFields, selectByIds } from './read'
 import { getTable, type TableMeta } from './registry'
 import { createStatements, planWrite, updateStatements } from './write'
@@ -80,7 +81,11 @@ dataRouter.post('/:table', async (req, res) => {
     res.json(many ? { records } : records[0])
   }
 
-  const statements = inputs.flatMap((fields, i) => createStatements(meta, ids[i], planWrite(meta, fields, user), now))
+  const statements = inputs.flatMap((fields, i) => {
+    const plan = planWrite(meta, fields, user)
+    if (meta.name === 'profiles') lockReceived(plan, null, now)
+    return createStatements(meta, ids[i], plan, now)
+  })
   if (SENSITIVE.has(meta.name)) statements.push(auditStatement(now, user.id, 'create', meta.name, null, ids))
 
   // With an Idempotency-Key, the key is stored in the same transaction as the
@@ -122,8 +127,9 @@ async function update(res: Response, meta: TableMeta, items: { id: string; field
   const own = rule === true ? undefined : rule
 
   const ids = items.map((item) => item.id)
+  const locked = meta.name === 'profiles' ? ', received_locked_at AS locked' : ''
   const existing = await rows(
-    sql(`SELECT id${own ? `, ${own.ownColumn} AS owner` : ''} FROM ${meta.name} WHERE id IN ${IN_LIST}`, list(ids)),
+    sql(`SELECT id${own ? `, ${own.ownColumn} AS owner` : ''}${locked} FROM ${meta.name} WHERE id IN ${IN_LIST}`, list(ids)),
   )
   const found = new Map(existing.map((row) => [row.id, row]))
   for (const id of ids) {
@@ -134,9 +140,11 @@ async function update(res: Response, meta: TableMeta, items: { id: string; field
 
   const now = nowIso()
   const projection = project(meta, readableFields(meta, user, true))
-  const statements = items.flatMap((item) =>
-    updateStatements(meta, item.id, planWrite(meta, item.fields, user, own), now),
-  )
+  const statements = items.flatMap((item) => {
+    const plan = planWrite(meta, item.fields, user, own)
+    if (meta.name === 'profiles') lockReceived(plan, found.get(item.id)!.locked, now)
+    return updateStatements(meta, item.id, plan, now)
+  })
   if (SENSITIVE.has(meta.name)) statements.push(auditStatement(now, user.id, 'update', meta.name, null, ids))
   statements.push(selectByIds(meta, projection, ids))
 

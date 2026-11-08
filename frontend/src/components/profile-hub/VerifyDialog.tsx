@@ -5,7 +5,7 @@ import { useAuth } from '../../auth'
 import { api, ApiError, type ApiRecord } from '../../lib/api'
 import { checkbox } from '../DataTable'
 import { button } from '../ui'
-import { FINAL_VERIFICATION, localDate } from './sop'
+import { F, FINAL_VERIFICATION, localDate } from './model'
 
 interface Props {
   profile: { id: string; name: string }
@@ -35,7 +35,7 @@ export function VerifyDialog({ profile, onClose, onCompleted }: Props) {
       onCompleted(
         await api<ApiRecord>(`/data/profiles/${profile.id}`, {
           method: 'PATCH',
-          body: { fields: { 'Setup Complete': true, 'Setup Completed On': localDate() } },
+          body: { fields: { [F.setupComplete]: true, [F.setupCompletedOn]: localDate() } },
         }),
       )
     } catch (err) {

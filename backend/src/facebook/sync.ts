@@ -72,8 +72,11 @@ syncRouter.post('/profiles/:id/sync', async (req, res) => {
     }
 
     const me = await client.get('me', { fields: 'id,name' })
+    // a profile marked Banned or Inactive in the Profile Hub stays that way; a sync only confirms a working one
     await sql(
-      `UPDATE profiles SET profile_id = ?, profile_name = ?, profile_status = 'Active', token_valid = 1, updated_at = ? WHERE id = ?`,
+      `UPDATE profiles SET profile_id = ?, profile_name = ?, token_valid = 1, updated_at = ?,
+         profile_status = CASE WHEN profile_status IN ('Banned', 'Inactive') THEN profile_status ELSE 'Active' END
+       WHERE id = ?`,
       me.id,
       me.name,
       now,

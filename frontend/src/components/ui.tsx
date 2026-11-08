@@ -46,6 +46,9 @@ const STATUS_TONE: Record<string, keyof typeof TONES> = {
   'with issues': 'red',
   'pending review': 'amber',
   error: 'red',
+  banned: 'red',
+  inactive: 'neutral',
+  live: 'green',
 }
 
 export const statusTone = (status: string) => TONES[STATUS_TONE[status.toLowerCase()] ?? 'neutral']
