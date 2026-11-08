@@ -48,7 +48,7 @@ const matches = (record: ApiRecord, words: string[]) => {
 // Search, Active/Dead filter and the list in three groups: In setup, Live, Dead (greyed)
 export function ProfileList({ records, value, onValueChange, onAdd, unsaved }: Props) {
   const [search, setSearch] = useState('')
-  const [filter, setFilter] = useState<Filter>('all')
+  const [filter, setFilter] = useState<Filter>('active')
 
   const counts = useMemo(() => {
     const dead = records.filter(isDead).length
