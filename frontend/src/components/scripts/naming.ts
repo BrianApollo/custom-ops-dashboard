@@ -10,7 +10,12 @@ import type { ApiRecord } from '../../lib/api'
 const BEFORE_FIRST = 1000
 
 // the fields the helpers below read
-export const NUMBERING_FIELDS = 'Name,Hook,Body,Hook Number,Base Script Number'
+export const NUMBERING_FIELDS = 'Name,Hook,Body,Hook Number,Base Script Number,Source'
+
+// Scripts made by the Ad Lab upload. They number themselves from their own high blocks (7001,
+// 9001…), so manual numbering leaves them out. Their name is checked too, for an upload that
+// does not send Source yet.
+export const isAutomation = (record: ApiRecord) => record.fields.Source === 'automation' || /-\s*AdLab\s*$/i.test(nameOf(record))
 
 const nameOf = (record: ApiRecord) => String(record.fields.Name ?? '')
 
@@ -34,9 +39,10 @@ export function hookNumber(record: ApiRecord) {
   return match ? Number(match[1]) : null
 }
 
-// The number for a product's next script, given every script it has
+// The number for a product's next manual script, given every script it has
 export function nextScriptNumber(scripts: ApiRecord[]) {
-  return Math.max(BEFORE_FIRST, ...scripts.map((script) => baseNumber(script) ?? 0)) + 1
+  const manual = scripts.filter((script) => !isAutomation(script)).map((script) => baseNumber(script) ?? 0)
+  return Math.max(BEFORE_FIRST, ...manual) + 1
 }
 
 // Hook 1 has no suffix: it is the script itself

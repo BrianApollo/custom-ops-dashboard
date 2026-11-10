@@ -2,8 +2,9 @@ export type ColumnType = 'text' | 'integer' | 'real' | 'checkbox' | 'json'
 
 export type FieldMapping =
   // a plain value stored in one column. `d1Only` marks a field the dashboard
-  // uses that has no counterpart in the Airtable base
-  | { kind: 'column'; column: string; type: ColumnType; d1Only?: boolean }
+  // uses that has no counterpart in the Airtable base. `values`, when set, are
+  // the only values the field may hold, and it may not be emptied
+  | { kind: 'column'; column: string; type: ColumnType; d1Only?: boolean; values?: string[] }
   // a link that holds at most one record id, stored as a foreign key
   | { kind: 'fk'; column: string; target: string }
   // a many-to-many link stored in a junction table. `side` is 'a' for the
@@ -41,6 +42,7 @@ const real = (column: string): FieldMapping => ({ kind: 'column', column, type: 
 const checkbox = (column: string): FieldMapping => ({ kind: 'column', column, type: 'checkbox' })
 const json = (column: string): FieldMapping => ({ kind: 'column', column, type: 'json' })
 const d1Only = (column: string): FieldMapping => ({ kind: 'column', column, type: 'text', d1Only: true })
+const d1Choice = (column: string, values: string[]): FieldMapping => ({ kind: 'column', column, type: 'text', d1Only: true, values })
 const fk = (column: string, target: string): FieldMapping => ({ kind: 'fk', column, target })
 const inverse = (table: string, column: string): FieldMapping => ({ kind: 'inverse', table, column })
 const attachment = (field: string): FieldMapping => ({ kind: 'attachment', field })
@@ -381,6 +383,8 @@ export const TABLES: TableMapping[] = [
       Notes: text('notes'),
       'Hook Number': integer('hook_number'),
       'Base Script Number': integer('base_script_number'),
+      // who made the script; manual numbering skips automation scripts
+      Source: d1Choice('source', ['manual', 'automation']),
       // USC base only
       'Videos copy': ignored,
       Videos: inverse('videos', 'script_id'),

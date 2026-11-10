@@ -4,7 +4,7 @@ import { useState, type FormEvent, type ReactNode } from 'react'
 import { useFetch } from '../../data'
 import { api, text, type ApiRecord } from '../../lib/api'
 import { button, input } from '../ui'
-import { baseNumber, hookName, hookNumber, NUMBERING_FIELDS } from './naming'
+import { baseNumber, hookName, hookNumber, isAutomation, NUMBERING_FIELDS } from './naming'
 
 interface Props {
   script: { id: string; name: string; productId: string | null }
@@ -107,6 +107,8 @@ function HooksForm({ record, scripts, onAdded }: { record: ApiRecord; scripts: A
             Name: hookName(text(record, 'Name'), next + i),
             Product: record.fields.Product ?? [],
             Author: record.fields.Author ?? [],
+            // a hook is made the same way as its script
+            Source: isAutomation(record) ? 'automation' : 'manual',
             'Script Content': `${hook}\n\n${body.trim()}`,
             Hook: hook,
             'Hook Number': next + i,

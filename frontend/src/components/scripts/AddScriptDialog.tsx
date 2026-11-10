@@ -20,7 +20,7 @@ const MIN_HOOKS = 2
 // number and the author. With hooks, each hook becomes its own script sharing one body.
 export function AddScriptDialog({ product, onClose, onCreated }: Props) {
   const { userNames } = useWorkspace()
-  const numbering = { fields: 'Name,Base Script Number', 'where[Product]': product.id }
+  const numbering = { fields: 'Name,Base Script Number,Source', 'where[Product]': product.id }
   const existing = useRecords('video_scripts', numbering)
 
   const [authorId, setAuthorId] = useState('')
@@ -45,7 +45,7 @@ export function AddScriptDialog({ product, onClose, onCreated }: Props) {
       // the number is worked out from the scripts as they are now, not as they were when the dialog opened
       const fresh = await api<{ records: ApiRecord[] }>(`/data/video_scripts?${new URLSearchParams(numbering)}`)
       const number = nextScriptNumber(fresh.records)
-      const shared = { Product: [product.id], Author: [authorId], 'Base Script Number': number }
+      const shared = { Product: [product.id], Author: [authorId], 'Base Script Number': number, Source: 'manual' }
       const records = withHooks
         ? written.map((hook, i) => ({
             fields: {

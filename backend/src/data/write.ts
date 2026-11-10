@@ -147,6 +147,9 @@ export function planWrite(meta: TableMeta, input: unknown, user: AuthUser, own?:
 
     switch (field.kind) {
       case 'column':
+        if (field.values && !field.values.includes(value as string)) {
+          throw invalid(`${name} must be one of: ${field.values.join(', ')}`, name)
+        }
         plan.columns[field.column] = columnValue(name, field.type, value)
         break
       case 'fk': {

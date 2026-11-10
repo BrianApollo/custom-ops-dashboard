@@ -299,6 +299,8 @@ export const videoScripts = sqliteTable(
     notes: text('notes'),
     hookNumber: integer('hook_number'),
     baseScriptNumber: integer('base_script_number'),
+    // who made the script: the dashboard (`manual`) or the Ad Lab upload (`automation`)
+    source: text('source', { enum: ['manual', 'automation'] }).notNull().default('manual'),
     ...timestamps,
   },
   (t) => [
