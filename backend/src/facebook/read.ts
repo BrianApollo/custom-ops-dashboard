@@ -51,6 +51,124 @@ readRouter.get('/ad-accounts', async (req, res) => {
   )
 })
 
+// Reporting reads on one ad account (insights, campaigns, ad sets, ads) for
+// tools that keep their own copy of performance data. One page per call, so a
+// large account never holds the request open: send the returned `after` back
+// for the next page. Only fields, limit, after, effective_status, filtering
+// and, for insights, level, time_increment, time_range, date_preset and
+// breakdowns reach Facebook.
+const ACCOUNT_EDGES = ['insights', 'campaigns', 'adsets', 'ads']
+const LEVELS = ['account', 'campaign', 'adset', 'ad']
+const TIME_INCREMENTS = ['1', '7', 'monthly', 'all_days']
+const FILTER_OPERATORS = ['EQUAL', 'NOT_EQUAL', 'GREATER_THAN', 'LESS_THAN', 'IN', 'NOT_IN', 'CONTAIN', 'NOT_CONTAIN']
+const FIELD_LIST = /^[A-Za-z0-9_.,{}()]+$/
+const DAY = /^\d{4}-\d{2}-\d{2}$/
+
+const oneString = (value: unknown, name: string) => {
+  if (value === undefined) return undefined
+  if (typeof value !== 'string' || value.length > 4000) throw invalid(`${name} must be a single value`, name)
+  return value
+}
+
+const jsonParam = (value: unknown, name: string) => {
+  const text = oneString(value, name)
+  if (text === undefined) return undefined
+  try {
+    return JSON.parse(text)
+  } catch {
+    throw invalid(`${name} must be JSON`, name)
+  }
+}
+
+readRouter.get('/ad-accounts/:id/edges/:edge', async (req, res) => {
+  const { id } = adAccount(req.params.id)
+  const edge = req.params.edge
+  if (!ACCOUNT_EDGES.includes(edge)) throw invalid(`edge must be one of: ${ACCOUNT_EDGES.join(', ')}`, 'edge')
+
+  const fields = oneString(req.query.fields, 'fields')
+  if (!fields || !FIELD_LIST.test(fields) || /access_token/i.test(fields)) throw invalid('fields must be a Facebook field list', 'fields')
+  const params: Record<string, unknown> = { fields }
+
+  const limit = Number(req.query.limit ?? 100)
+  if (!Number.isInteger(limit) || limit < 1 || limit > 500) throw invalid('limit must be 1 to 500', 'limit')
+  params.limit = limit
+
+  const after = oneString(req.query.after, 'after')
+  if (after !== undefined) {
+    if (!/^[A-Za-z0-9_=-]+$/.test(after)) throw invalid('after must be a cursor from a previous page', 'after')
+    params.after = after
+  }
+
+  const effectiveStatus = jsonParam(req.query.effective_status, 'effective_status')
+  if (effectiveStatus !== undefined) {
+    if (!Array.isArray(effectiveStatus) || !effectiveStatus.every((s) => typeof s === 'string' && /^[A-Z_]+$/.test(s))) {
+      throw invalid('effective_status must be a JSON list of statuses', 'effective_status')
+    }
+    params.effective_status = effectiveStatus
+  }
+
+  const filtering = jsonParam(req.query.filtering, 'filtering')
+  if (filtering !== undefined) {
+    const scalar = (v: unknown) => typeof v === 'string' || typeof v === 'number'
+    const ok =
+      Array.isArray(filtering) &&
+      filtering.length <= 10 &&
+      filtering.every(
+        (f) =>
+          f &&
+          typeof f.field === 'string' &&
+          /^[a-z_.]+$/.test(f.field) &&
+          FILTER_OPERATORS.includes(f.operator) &&
+          (scalar(f.value) || (Array.isArray(f.value) && f.value.length <= 100 && f.value.every(scalar))),
+      )
+    if (!ok) throw invalid('filtering must be a JSON list of {field, operator, value}', 'filtering')
+    params.filtering = filtering.map((f: { field: string; operator: string; value: unknown }) => ({
+      field: f.field,
+      operator: f.operator,
+      value: f.value,
+    }))
+  }
+
+  if (edge === 'insights') {
+    const level = oneString(req.query.level, 'level')
+    if (level !== undefined) {
+      if (!LEVELS.includes(level)) throw invalid(`level must be one of: ${LEVELS.join(', ')}`, 'level')
+      params.level = level
+    }
+    const increment = oneString(req.query.time_increment, 'time_increment')
+    if (increment !== undefined) {
+      if (!TIME_INCREMENTS.includes(increment)) throw invalid(`time_increment must be one of: ${TIME_INCREMENTS.join(', ')}`, 'time_increment')
+      params.time_increment = increment
+    }
+    const range = jsonParam(req.query.time_range, 'time_range')
+    const preset = oneString(req.query.date_preset, 'date_preset')
+    if (range !== undefined) {
+      if (!range || !DAY.test(range.since) || !DAY.test(range.until) || range.since > range.until) {
+        throw invalid('time_range must be {"since":"YYYY-MM-DD","until":"YYYY-MM-DD"}', 'time_range')
+      }
+      params.time_range = { since: range.since, until: range.until }
+    } else if (preset !== undefined) {
+      if (!DATE_PRESETS.includes(preset)) throw invalid(`date_preset must be one of: ${DATE_PRESETS.join(', ')}`, 'date_preset')
+      params.date_preset = preset
+    }
+    const breakdowns = oneString(req.query.breakdowns, 'breakdowns')
+    if (breakdowns !== undefined) {
+      if (!/^[a-z_,]+$/.test(breakdowns)) throw invalid('breakdowns must be a list of breakdown names', 'breakdowns')
+      params.breakdowns = breakdowns
+    }
+  }
+
+  res.json(
+    await withCredential(req.query.cred, async ({ client }) => {
+      const body = await client.get(`${id}/${edge}`, params)
+      return {
+        data: (body.data as FbObject[] | undefined) ?? [],
+        after: body.paging?.next ? ((body.paging.cursors?.after as string | undefined) ?? null) : null,
+      }
+    }),
+  )
+})
+
 readRouter.get('/ad-accounts/:id/pixels', async (req, res) => {
   const { id } = adAccount(req.params.id)
   res.json(
