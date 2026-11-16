@@ -521,7 +521,6 @@ class Runner {
         try {
           id = await create()
         } catch (err) {
-          if (declarationRefused(err)) this.adSetStop = `The ad set was not created: ${message(err)}`
           if (refused(err) || declarationRefused(err)) throw err
           let looked = false
           try {
@@ -539,6 +538,7 @@ class Runner {
       run.steps.adSet = 'done'
       this.publish()
     } catch (err) {
+      if (declarationRefused(err)) this.adSetStop = `The ad set was not created: ${message(err)}`
       // one last look, so an ad set that was made after all is not lost
       const late = refused(err) || declarationRefused(err) ? undefined : await existing().catch(() => undefined)
       if (late) {
