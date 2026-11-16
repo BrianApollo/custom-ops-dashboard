@@ -113,6 +113,8 @@ const refused = (err: unknown) => err instanceof ApiError && err.status < 500
 const hopeless = (err: unknown) =>
   err instanceof ApiError &&
   (err.status === 401 || err.status === 403 || err.code === 'facebook_token_invalid' || err.code === 'facebook_token_missing')
+// the ad set was refused for its declaration, or Facebook did not keep it: no other ad set may be used in its place
+const declarationRefused = (err: unknown) => err instanceof ApiError && (err.code === 'declaration_mismatch' || err.status === 422)
 
 // Facebook writes `2026-10-11T08:00:00-0700`, which not every browser reads without the colon
 const created = (time: string | undefined) => Date.parse((time ?? '').replace(/([+-]\d{2})(\d{2})$/, '$1:$2'))
@@ -238,6 +240,7 @@ class Runner {
   private busy = false
   private stopping = false
   private adSetTried = false
+  private adSetStop: string | undefined
   private wake: (() => void) | undefined
 
   constructor(private run: LaunchRun) {}
@@ -481,6 +484,10 @@ class Runner {
   private async createAdSet() {
     const { run } = this
     const { plan } = run
+    if (this.adSetStop) {
+      run.steps.adSet = 'error'
+      throw new Error(this.adSetStop)
+    }
     run.steps.adSet = 'active'
     this.say('Creating the ad set…')
     const create = async () => {
@@ -514,7 +521,8 @@ class Runner {
         try {
           id = await create()
         } catch (err) {
-          if (refused(err)) throw err
+          if (declarationRefused(err)) this.adSetStop = `The ad set was not created: ${message(err)}`
+          if (refused(err) || declarationRefused(err)) throw err
           let looked = false
           try {
             id = await existing()
@@ -532,7 +540,7 @@ class Runner {
       this.publish()
     } catch (err) {
       // one last look, so an ad set that was made after all is not lost
-      const late = refused(err) ? undefined : await existing().catch(() => undefined)
+      const late = refused(err) || declarationRefused(err) ? undefined : await existing().catch(() => undefined)
       if (late) {
         run.fbAdSetId = late
         run.steps.adSet = 'done'

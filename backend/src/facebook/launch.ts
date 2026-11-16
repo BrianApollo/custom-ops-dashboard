@@ -1,9 +1,10 @@
 import { Router } from 'express'
-import { badRequest, invalid } from '../lib/errors'
+import { ApiError, badRequest, invalid } from '../lib/errors'
 import { adAccount, graphId, type BatchItem, type FbObject } from '../lib/facebook'
 import { ownFile } from '../lib/storage'
 import { BUDGET_CONFIRM_MESSAGE, budgetNeedsConfirm } from './budget'
 import { withCredential } from './credentials'
+import { buildDeclaration, compareDeclaration, DECLARATION_FIELDS, mismatchMessage } from './declarations'
 
 // The steps of a campaign launch, one call each. The frontend's launch runner
 // drives them in order; the profile launcher and the system user launcher use
@@ -61,9 +62,6 @@ launchRouter.post('/ad-accounts/:id/adsets', async (req, res) => {
   const a = body.adSet ?? {}
   const countries = texts(a.targeting?.geoLocations?.countries, 'adSet.targeting.geoLocations.countries').map((c) => c.toUpperCase())
   if (!countries.length) throw invalid('At least one country is required', 'adSet.targeting.geoLocations.countries')
-  // Europe's ad rules need a named beneficiary and payer on every ad set
-  const beneficiary = a.beneficiaryName || 'Online Marketing'
-
   const params: Record<string, unknown> = {
     name: text(a.name, 'adSet.name'),
     campaign_id: graphId(body.campaignId, 'campaignId'),
@@ -77,20 +75,33 @@ launchRouter.post('/ad-accounts/:id/adsets', async (req, res) => {
     },
     // Unix seconds; with none given the ad set starts in an hour
     start_time: String(a.startTime || Math.floor(Date.now() / 1000) + 3600),
-    dsa_beneficiary: beneficiary,
-    dsa_payor: a.payerName || beneficiary,
   }
-  // other regions (Australia, …) send their own declaration through
-  const categories = new Set(
-    a.regionalRegulatedCategories == null ? [] : texts(a.regionalRegulatedCategories, 'adSet.regionalRegulatedCategories'),
-  )
-  if (countries.includes('SG')) categories.add('SINGAPORE_UNIVERSAL')
-  if (categories.size) params.regional_regulated_categories = [...categories]
-  if (a.regionalRegulationIdentities != null) params.regional_regulation_identities = a.regionalRegulationIdentities
+  // Europe's beneficiary and payer on every ad set, and the regional categories
+  // (Singapore, Australia, …); Australia without an identity stops here
+  const declaration = buildDeclaration(a, countries)
+  Object.assign(params, declaration)
 
   res.json(
     await withCredential(body.cred, async ({ client }) => {
       const created = await client.post(`${id}/adsets`, params)
+      // Facebook accepts the ad set whether or not it keeps the declaration, so it is read back.
+      // One that did not keep it has no ads yet and is deleted at once.
+      const stored = await client.get(created.id as string, { fields: DECLARATION_FIELDS })
+      const mismatches = compareDeclaration(declaration, stored, countries)
+      if (mismatches.length) {
+        let deleted = false
+        try {
+          await client.post(created.id as string, { status: 'DELETED' })
+          deleted = true
+        } catch {
+          // reported in the answer, so the ad set can be removed by hand
+        }
+        throw new ApiError(409, 'declaration_mismatch', mismatchMessage(mismatches, created.id as string, deleted), null, {
+          mismatches,
+          adSetId: created.id,
+          adSetDeleted: deleted,
+        })
+      }
       return { id: created.id, rate: client.rate }
     }),
   )
