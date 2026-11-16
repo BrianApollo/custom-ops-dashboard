@@ -13,6 +13,7 @@ import { dashboardRouter } from './routes/dashboard'
 import { forwardersRouter } from './routes/forwarders'
 import { healthRouter } from './routes/health'
 import { imagesRouter } from './routes/images'
+import { libraryRouter } from './routes/library'
 import { importRouter } from './routes/import'
 import { overviewRouter } from './routes/overview'
 import { scriptsRouter } from './routes/scripts'
@@ -64,6 +65,7 @@ api.use(storageRouter)
 api.use(scriptsRouter)
 api.use(videosRouter)
 api.use(imagesRouter)
+api.use(libraryRouter)
 api.use(overviewRouter)
 api.use('/import', importRouter)
 api.use('/facebook', facebookRouter)

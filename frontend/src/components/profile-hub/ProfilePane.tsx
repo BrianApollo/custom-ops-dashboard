@@ -173,7 +173,7 @@ export function ProfilePane({ record, draft, onDraft, onSaved, linkNames }: Prop
   // ---- the Received | Current table ----
   const receivedCell = (key: ReceivedKey, mono = false, multiline = false) =>
     locked || Object.keys(received).length ? (
-      <CopyValue value={received[key] ?? ''} display={key === 'cookies' ? cookieSummary(received.cookies ?? '') : undefined} mono={mono} muted className="border-transparent bg-[#f3f6fa] hover:border-blue-700" />
+      <CopyValue value={received[key] ?? ''} display={key === 'cookies' ? cookieSummary(received.cookies ?? '') : undefined} mono={mono} muted className="border-transparent bg-[#f3f6fa] hover:border-blue-700 dark:bg-neutral-100" />
     ) : multiline ? (
       <textarea rows={2} value={receivedDraft[key] ?? ''} onChange={(e) => setReceivedDraft({ ...receivedDraft, [key]: e.target.value })} className={`${inputClass} font-mono text-[13px]`} />
     ) : (

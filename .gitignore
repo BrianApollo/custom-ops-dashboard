@@ -15,3 +15,6 @@ backend/wrangler.jsonc
 
 # raw Airtable exports (contain credentials)
 exports/
+
+# local run mode (backend/scripts/local-setup.mjs)
+backend/.local/

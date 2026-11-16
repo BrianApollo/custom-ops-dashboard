@@ -37,7 +37,7 @@ interface Props {
 
 const GROUP_ICON: Record<string, LucideIcon> = { Profile: User, Facebook: Globe, Mailbox: Mail, 'Recovery mailbox': Shield, Other: Settings }
 
-const tint = (hue: string, pct: number) => `color-mix(in srgb, ${hue} ${pct}%, #fff)`
+const tint = (hue: string, pct: number, base = '#fff') => `color-mix(in srgb, ${hue} ${pct}%, ${base})`
 
 type Conn = Partial<Record<AddKey, number>>
 type Typed = Partial<Record<AddKey, string>>
@@ -316,7 +316,7 @@ export function AddProfile({ onClose, onCreated }: Props) {
     const v = value(key)
     const bad = !fits(key, v)
     const isSame = key === 'email' && same
-    const inputStyle: CSSProperties = linked && !isSame ? { background: tint(hue, 7), borderColor: tint(hue, 40) } : {}
+    const inputStyle: CSSProperties = linked && !isSame ? { background: tint(hue, 7, 'var(--color-white, #fff)'), borderColor: tint(hue, 40, 'var(--color-white, #fff)') } : {}
     const inputClass = `block min-h-9 w-full min-w-0 flex-1 rounded-md border px-2.5 py-1.5 text-sm outline-none placeholder:text-neutral-400 focus:border-blue-700 focus:ring-1 focus:ring-blue-700 ${
       field.mono ? 'font-mono text-[13px]' : ''
     } ${bad ? 'border-red-400 bg-red-50' : isSame ? 'border-dashed border-neutral-300 bg-neutral-50 text-neutral-600' : linked ? '' : missing.includes(key) ? 'border-red-300 bg-red-50/40' : 'border-neutral-300 bg-white'}`

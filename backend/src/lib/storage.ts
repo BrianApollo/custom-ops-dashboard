@@ -1,6 +1,9 @@
 import { AwsClient } from 'aws4fetch'
 import { settings } from '../env'
 import { ApiError, invalid } from './errors'
+import { linkFor } from './fileLink'
+
+export { urlPath } from './fileLink'
 
 const UPLOAD_SECONDS = 600
 
@@ -12,13 +15,7 @@ function publicBase() {
   return base.replace(/\/$/, '')
 }
 
-// The key goes into the link as is, spaces included, because that is how every
-// link already stored in the data is written (`…/GhostWing/Videos/GhostWing - Script 1039 - ….mp4`).
-// Only the three characters that would change the meaning of the URL are escaped;
-// Airtable file names, for one, contain a literal `%20`.
-export const urlPath = (key: string) => key.replace(/[%#?]/g, (c) => encodeURIComponent(c))
-
-export const publicUrl = (key: string) => `${publicBase()}/${urlPath(key)}`
+export const publicUrl = (key: string) => linkFor(publicBase(), key)
 
 // The object key behind one of our own public URLs, written either way.
 // Anything else is refused, so a record can only point at files in our bucket.

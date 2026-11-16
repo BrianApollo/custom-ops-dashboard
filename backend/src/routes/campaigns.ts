@@ -7,6 +7,7 @@ import { appendLinkStatement } from '../data/write'
 import { batch, IN_LIST, list, nowIso, rows, sql } from '../lib/d1'
 import { badRequest, forbidden, invalid, notFound } from '../lib/errors'
 import { RECORD_ID } from '../lib/ids'
+import { markedUsedFrom, marksUsed, MEDIA_FIELDS, type MediaKey } from '../lib/usedMedia'
 import { ruleFor } from '../permissions'
 
 export const campaignsRouter = Router()
@@ -16,13 +17,14 @@ const campaigns = getTable('campaigns')
 type Junction = Extract<FieldMapping, { kind: 'junction' }>
 
 // request key -> the campaign link field it adds to
-const MEDIA = [
-  { key: 'videoIds', field: campaigns.fields.get('Videos Used In This Campaign') as Junction },
-  { key: 'aiVideoIds', field: campaigns.fields.get('Videos copy') as Junction },
-  { key: 'imageIds', field: campaigns.fields.get('Images Used In This Campaign') as Junction },
-]
+export const MEDIA = (Object.keys(MEDIA_FIELDS) as MediaKey[]).map((key) => ({
+  key,
+  field: campaigns.fields.get(MEDIA_FIELDS[key]) as Junction,
+}))
 
-function mediaFrom(body: Record<string, unknown>) {
+type Media = { key: MediaKey; field: Junction; ids: string[] }
+
+function mediaFrom(body: Record<string, unknown>): Media[] {
   return MEDIA.flatMap(({ key, field }) => {
     const ids = body?.[key]
     if (ids === undefined) return []
@@ -50,22 +52,55 @@ async function check(id: string, media: ReturnType<typeof mediaFrom>) {
   })
 }
 
-async function respond(res: Response, id: string, statements: D1PreparedStatement[]) {
+// Runs the statements and then `reads` in one transaction; returns the
+// campaign as it is afterwards and the rows of each read
+async function commit(res: Response, id: string, statements: D1PreparedStatement[], reads: D1PreparedStatement[] = []) {
   const projection = project(campaigns, readableFields(campaigns, currentUser(res), true))
-  const results = await batch([...statements, selectByIds(campaigns, projection, [id])])
-  res.json(projection.decode(results[results.length - 1].results[0]))
+  const results = await batch([...statements, ...reads, selectByIds(campaigns, projection, [id])])
+  return {
+    record: projection.decode(results[results.length - 1].results[0]),
+    reads: results.slice(statements.length, statements.length + reads.length).map((result) => result.results),
+  }
+}
+
+// Marks the videos and AI videos among `media` Used; images are never marked
+function markUsedStatements(media: Media[], now: string) {
+  return media
+    .filter(({ key }) => marksUsed(key))
+    .map(({ field, ids }) => sql(`UPDATE ${field.target} SET status = 'Used', updated_at = ? WHERE id IN ${IN_LIST}`, now, list(ids)))
+}
+
+// Reads back which of those ids now hold status Used
+function usedReads(media: Media[]) {
+  return media
+    .filter(({ key }) => marksUsed(key))
+    .map(({ field, ids }) => sql(`SELECT id FROM ${field.target} WHERE id IN ${IN_LIST} AND status = 'Used'`, list(ids)))
 }
 
 // Adds videos, AI videos and images to a campaign. Existing links stay and duplicates are ignored.
+// With `markUsed: true` the videos and AI videos are marked Used in the same
+// transaction, and the answer lists the ids read back as Used.
 campaignsRouter.post('/:id/media', async (req, res) => {
   requireUpdate(res)
   const { id } = req.params
   const media = mediaFrom(req.body)
+  const markUsed = req.body?.markUsed === true
   await check(id, media)
-  await respond(res, id, [
-    ...media.map(({ field, ids }) => appendLinkStatement(field, id, ids)),
-    sql('UPDATE campaigns SET updated_at = ? WHERE id = ?', nowIso(), id),
-  ])
+  const now = nowIso()
+  const used = markUsed ? media.filter(({ key }) => marksUsed(key)) : []
+  const { record, reads } = await commit(
+    res,
+    id,
+    [
+      ...media.map(({ field, ids }) => appendLinkStatement(field, id, ids)),
+      ...markUsedStatements(used, now),
+      sql('UPDATE campaigns SET updated_at = ? WHERE id = ?', now, id),
+    ],
+    usedReads(used),
+  )
+  if (!markUsed) return void res.json(record)
+  const byKey = Object.fromEntries(used.map(({ key }, i) => [key, reads[i].map((row) => row.id as string)]))
+  res.json({ ...record, markedUsed: markedUsedFrom(byKey) })
 })
 
 // Records a finished launch in one transaction: Facebook ids, snapshot, status,
@@ -83,8 +118,7 @@ campaignsRouter.post('/:id/launch-result', async (req, res) => {
   await check(id, media)
 
   const now = nowIso()
-  const used = media.filter(({ key }) => key !== 'imageIds')
-  await respond(res, id, [
+  const { record } = await commit(res, id, [
     sql(
       `UPDATE campaigns SET fb_campaign_id = ?, fb_ad_account_id = ?, launch_profile_id = ?, launched_data = ?,
          status = 'Launched', launched_at = ?, updated_at = ? WHERE id = ?`,
@@ -97,10 +131,9 @@ campaignsRouter.post('/:id/launch-result', async (req, res) => {
       id,
     ),
     ...media.map(({ field, ids }) => appendLinkStatement(field, id, ids)),
-    ...used.map(({ field, ids }) =>
-      sql(`UPDATE ${field.target} SET status = 'Used', updated_at = ? WHERE id IN ${IN_LIST}`, now, list(ids)),
-    ),
+    ...markUsedStatements(media, now),
   ])
+  res.json(record)
 })
 
 // Looks campaigns up by Facebook campaign id. GET ?ids=a,b or POST { ids } for long lists.

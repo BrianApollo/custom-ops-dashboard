@@ -539,6 +539,7 @@ export function LiveState({ record, fbCampaignId, adAccountId, cred, productId, 
           adAccountId={adAccountId}
           cred={cred}
           productId={productId}
+          campaignRecordId={record.id}
           onClose={() => setReplacing(null)}
           onChanged={fb.reload}
         />

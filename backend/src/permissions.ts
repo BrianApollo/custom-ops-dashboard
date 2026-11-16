@@ -10,6 +10,8 @@ export interface OwnRule {
   ownColumn: string
   // the only fields they may change
   fields: string[]
+  // for a listed field, the only values they may write
+  values?: Record<string, string[]>
 }
 
 export interface TableRule {
@@ -35,7 +37,12 @@ const NONE: TableRule = {}
 const NAMES_ONLY: TableRule = { read: true, readFields: ['Name', 'Role'] }
 const OWN_VIDEOS: TableRule = {
   read: true,
-  update: { ownColumn: 'editor_id', fields: ['Status', 'Creative Link', 'Notes', 'Video Data'] },
+  update: {
+    ownColumn: 'editor_id',
+    fields: ['Status', 'Creative Link', 'Notes', 'Video Data'],
+    // editors move a video between waiting for a file and waiting for review; Available and Used are set by admins
+    values: { Status: ['To Do', 'Review'] },
+  },
 }
 
 const reference = { video_editor: READ }
@@ -62,6 +69,9 @@ export const PERMISSIONS: Record<string, Partial<Record<Role, TableRule>>> = {
   rule_execution_log: { service: { read: true, create: true } },
   master_profile: { service: READ },
   profiles: { service: READ },
+  media_assets: reference,
+  tag_types: reference,
+  media_asset_tags: reference,
 }
 
 export const isAdmin = (role: Role) => role === 'admin'
@@ -86,5 +96,15 @@ export const SECRET_FIELDS = new Set([
   'Proxy',
   'System User ID',
 ])
+
+// Whether an own-rule caller may write this value to this field
+export function ownValueAllowed(own: OwnRule, field: string, value: unknown) {
+  const allowed = own.values?.[field]
+  return !allowed || (typeof value === 'string' && allowed.includes(value))
+}
+
+// A video already in an ad keeps its Status: an own-rule caller may not change it once it is Used
+export const ownStatusLocked = (currentStatus: unknown, fields: unknown) =>
+  currentStatus === 'Used' && typeof fields === 'object' && fields !== null && 'Status' in fields
 
 export const canSeeSecrets = (role: Role) => isAdmin(role) || role === 'service'

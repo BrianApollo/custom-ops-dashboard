@@ -13,7 +13,12 @@
     "build": "npm run build -w @ops/frontend",
     "deploy": "npm run deploy -w @ops/backend",
     "import": "npm run import -w @ops/scripts --",
-    "typecheck": "npm run typecheck --workspaces --if-present"
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "local:setup": "npm run local:setup -w @ops/backend",
+    "local:dev": "npm run local:dev -w @ops/backend --",
+    "local:reset": "npm run local:reset -w @ops/backend",
+    "local:copy": "npm run local:copy -w @ops/backend --",
+    "test": "npm test -w @ops/backend"
   },
   "devDependencies": {
     "typescript": "^7.0.2"

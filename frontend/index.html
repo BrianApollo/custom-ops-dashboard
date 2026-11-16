@@ -4,6 +4,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Media Ops</title>
+    <script>
+      (function () {
+        var dark = false
+        try {
+          var saved = localStorage.getItem('ops.theme')
+          dark = saved ? saved === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches
+        } catch (e) {}
+        if (dark) document.documentElement.classList.add('dark')
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

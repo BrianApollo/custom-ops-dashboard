@@ -1,5 +1,5 @@
-import { index, integer, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
-import { checkbox, id, parent, timestamps } from './columns'
+import { index, integer, real, sqliteTable, text, uniqueIndex, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core'
+import { checkbox, id, link, parent, timestamps } from './columns'
 
 export const users = sqliteTable(
   'users',
@@ -373,6 +373,20 @@ export const videos = sqliteTable(
     firstUploadAt: text('first_upload_at'),
     // set whenever creative_link changes
     creativeLinkUpdatedAt: text('creative_link_updated_at'),
+    // JSON lists of strings: the ad copy that goes with the video
+    primaryTexts: text('primary_texts'),
+    headlines: text('headlines'),
+    descriptions: text('descriptions'),
+    angle: text('angle'),
+    landingPage: text('landing_page'),
+    batch: text('batch'),
+    pipeline: text('pipeline'),
+    persona: text('persona'),
+    sourceSystem: text('source_system'),
+    // JSON object: what the tool that made the video knows about it (models, cost, voice)
+    generation: text('generation'),
+    // JSON list of library asset keys the video was cut from
+    libraryAssets: text('library_assets'),
     ...timestamps,
   },
   (t) => [
@@ -543,4 +557,97 @@ export const angles = sqliteTable(
     ...timestamps,
   },
   (t) => [index('idx_angles_product_id').on(t.productId)],
+)
+
+// Reusable footage and images, tagged by story phase and whether the product is in frame.
+// Filled by a sync job outside the dashboard.
+export const mediaAssets = sqliteTable(
+  'media_assets',
+  {
+    id: id(),
+    assetKey: text('asset_key').notNull(),
+    productId: parent('product_id', () => products),
+    generic: checkbox('generic'),
+    niche: text('niche').notNull(),
+    kind: text('kind').notNull(),
+    phase: text('phase'),
+    // null when not known
+    productVisible: integer('product_visible', { mode: 'boolean' }),
+    textOverlay: integer('text_overlay', { mode: 'boolean' }),
+    subject: text('subject'),
+    orientation: text('orientation'),
+    aspect: text('aspect'),
+    width: integer('width'),
+    height: integer('height'),
+    durationMs: integer('duration_ms'),
+    maxUseMs: integer('max_use_ms'),
+    sourceSystem: text('source_system').notNull(),
+    sourceId: text('source_id').notNull(),
+    sourceVideoId: parent('source_video_id', () => videos),
+    rights: text('rights').notNull(),
+    storageKey: text('storage_key'),
+    // sha256 of the file bytes
+    hash: text('hash').notNull(),
+    bytes: integer('bytes'),
+    tagSource: text('tag_source').notNull(),
+    tagConfidence: real('tag_confidence'),
+    approved: checkbox('approved'),
+    // JSON list of where the asset was used
+    usedIn: text('used_in').notNull().default('[]'),
+    notes: text('notes'),
+    // the file and its thumbnail in the bucket the dashboard serves files from
+    fileKey: text('file_key'),
+    thumbnailKey: text('thumbnail_key'),
+    // which version of the tag vocabulary the asset's tags were last filled against
+    tagVersion: integer('tag_version'),
+    // JSON object: long generation details that are not tags (prompt, reference image)
+    generation: text('generation'),
+    // the asset this one was made from, when known
+    parentAssetId: text('parent_asset_id').references((): AnySQLiteColumn => mediaAssets.id, { onDelete: 'set null' }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('media_assets_hash').on(t.hash),
+    uniqueIndex('media_assets_key').on(t.assetKey),
+    index('media_assets_menu').on(t.productId, t.phase, t.productVisible, t.kind, t.approved),
+  ],
+)
+
+// The tag vocabulary, pushed by the same sync. One row per tag type.
+export const tagTypes = sqliteTable(
+  'tag_types',
+  {
+    id: id(),
+    key: text('key').notNull(),
+    label: text('label').notNull(),
+    // choice, text, number or flag
+    kind: text('kind').notNull(),
+    // JSON list of the allowed values of a choice
+    allowedValues: text('allowed_values'),
+    multi: checkbox('multi'),
+    // shown as a filter on the Library page
+    filter: checkbox('filter'),
+    position: integer('position').notNull().default(0),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex('tag_types_key').on(t.key)],
+)
+
+// One tag value on one asset; a multi tag has one row per value
+export const mediaAssetTags = sqliteTable(
+  'media_asset_tags',
+  {
+    id: id(),
+    assetId: link('asset_id', () => mediaAssets),
+    tagKey: text('tag_key').notNull(),
+    value: text('value').notNull(),
+    // the tool that set it
+    source: text('source'),
+    confidence: real('confidence'),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('media_asset_tags_value').on(t.assetId, t.tagKey, t.value),
+    index('media_asset_tags_filter').on(t.tagKey, t.value),
+  ],
 )

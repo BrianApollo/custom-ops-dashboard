@@ -5,6 +5,7 @@ import { Shell } from './components/Shell'
 import { CampaignView } from './pages/CampaignView'
 import { EditorPortal } from './pages/EditorPortal'
 import { Infrastructure } from './pages/Infrastructure'
+import { Library } from './pages/Library'
 import { Login } from './pages/Login'
 import { Manage } from './pages/Manage'
 import { Overview } from './pages/Overview'
@@ -34,6 +35,7 @@ export function App() {
               <Route path="profile-hub" element={<ProfileHub />} />
               <Route path="users" element={<Users />} />
               <Route path="videos" element={<EditorPortal />} />
+              <Route path="library" element={<Library />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

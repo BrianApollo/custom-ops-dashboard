@@ -60,6 +60,8 @@ export interface LaunchPlan {
   // per day, in the ad account's currency
   budget: number
   budgetCents: number
+  // set once a daily budget above 500 has been confirmed
+  allowHighBudget?: boolean
   countries: string[]
   // as typed, and as the moment it means in the ad account's time zone (Unix seconds)
   start: string
@@ -111,6 +113,8 @@ const refused = (err: unknown) => err instanceof ApiError && err.status < 500
 const hopeless = (err: unknown) =>
   err instanceof ApiError &&
   (err.status === 401 || err.status === 403 || err.code === 'facebook_token_invalid' || err.code === 'facebook_token_missing')
+// the ad set was refused for its declaration, or Facebook did not keep it: no other ad set may be used in its place
+const declarationRefused = (err: unknown) => err instanceof ApiError && (err.code === 'declaration_mismatch' || err.status === 422)
 
 // Facebook writes `2026-10-11T08:00:00-0700`, which not every browser reads without the colon
 const created = (time: string | undefined) => Date.parse((time ?? '').replace(/([+-]\d{2})(\d{2})$/, '$1:$2'))
@@ -236,6 +240,7 @@ class Runner {
   private busy = false
   private stopping = false
   private adSetTried = false
+  private adSetStop: string | undefined
   private wake: (() => void) | undefined
 
   constructor(private run: LaunchRun) {}
@@ -427,6 +432,7 @@ class Runner {
           specialAdCategories: [],
           dailyBudget: plan.budgetCents,
           bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
+          ...(plan.allowHighBudget ? { allowHighBudget: true } : {}),
         },
       })
       id = made.id
@@ -478,40 +484,46 @@ class Runner {
   private async createAdSet() {
     const { run } = this
     const { plan } = run
+    if (this.adSetStop) {
+      run.steps.adSet = 'error'
+      throw new Error(this.adSetStop)
+    }
     run.steps.adSet = 'active'
     this.say('Creating the ad set…')
+    const adSet = {
+      name: `${plan.name} - AdSet`,
+      optimizationGoal: 'OFFSITE_CONVERSIONS',
+      billingEvent: 'IMPRESSIONS',
+      status: plan.status,
+      targeting: { geoLocations: { countries: plan.countries }, ageMin: 18, ageMax: 65 },
+      promotedObject: { customEventType: 'PURCHASE' },
+      startTime: plan.startTime,
+      beneficiaryName: plan.beneficiaryName,
+      payerName: plan.payerName,
+    }
     const create = async () => {
       this.adSetTried = true
-      const made = await this.post<{ id?: string }>('adsets', {
-        campaignId: run.fbCampaignId,
-        pixelId: plan.pixel.id,
-        adSet: {
-          name: `${plan.name} - AdSet`,
-          optimizationGoal: 'OFFSITE_CONVERSIONS',
-          billingEvent: 'IMPRESSIONS',
-          status: plan.status,
-          targeting: { geoLocations: { countries: plan.countries }, ageMin: 18, ageMax: 65 },
-          promotedObject: { customEventType: 'PURCHASE' },
-          startTime: plan.startTime,
-          beneficiaryName: plan.beneficiaryName,
-          payerName: plan.payerName,
-        },
-      })
+      const made = await this.post<{ id?: string }>('adsets', { campaignId: run.fbCampaignId, pixelId: plan.pixel.id, adSet })
       if (!made.id) throw new Error('Facebook answered without an ad set id')
       return made.id
     }
     const existing = async () =>
       (await api<{ adSets: { id: string }[] }>(withCred(`/facebook/campaigns/${run.fbCampaignId}`, plan.cred))).adSets[0]?.id
+    // an ad set found rather than made is used only once its declaration reads back as sent
+    const verify = (adSetId: string) => this.post<{ ok: true }>('adsets/verify', { adSetId, adSet })
 
     try {
       let id: string | undefined
       // an earlier try may have made it without our hearing so
-      if (this.adSetTried) id = await existing()
+      if (this.adSetTried) {
+        id = await existing()
+        if (id) await verify(id)
+      }
       if (!id) {
         try {
           id = await create()
         } catch (err) {
-          if (refused(err)) throw err
+          if (refused(err) || declarationRefused(err)) throw err
           let looked = false
           try {
             id = await existing()
@@ -520,16 +532,30 @@ class Runner {
             // without the look, a second ad set could be made; the launch stops instead
           }
           if (!looked) throw new Error(`${message(err)}; and the campaign could not be read to see whether the ad set exists`)
+          if (id) await verify(id)
           // the campaign has no ad set, so asking once more cannot make a second
-          if (!id) id = await create()
+          else id = await create()
         }
       }
       run.fbAdSetId = id
       run.steps.adSet = 'done'
       this.publish()
     } catch (err) {
+      if (declarationRefused(err)) this.adSetStop = `The ad set was not created: ${message(err)}`
       // one last look, so an ad set that was made after all is not lost
-      const late = refused(err) ? undefined : await existing().catch(() => undefined)
+      let late = refused(err) || declarationRefused(err) ? undefined : await existing().catch(() => undefined)
+      if (late) {
+        try {
+          await verify(late)
+        } catch (verifyErr) {
+          late = undefined
+          if (declarationRefused(verifyErr)) {
+            this.adSetStop = `The ad set was not created: ${message(verifyErr)}`
+            run.steps.adSet = 'error'
+            throw new Error(this.adSetStop)
+          }
+        }
+      }
       if (late) {
         run.fbAdSetId = late
         run.steps.adSet = 'done'

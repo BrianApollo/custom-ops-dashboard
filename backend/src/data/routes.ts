@@ -4,7 +4,7 @@ import { auditStatement } from '../lib/audit'
 import { batch, IN_LIST, list, nowIso, rows, sql } from '../lib/d1'
 import { badRequest, conflict, forbidden, invalid, notFound } from '../lib/errors'
 import { recordId, RECORD_ID } from '../lib/ids'
-import { ruleFor } from '../permissions'
+import { ownStatusLocked, ruleFor } from '../permissions'
 import { lockReceived } from './profiles'
 import { countStatement, inOrder, listStatement, parseListQuery, project, readableFields, selectByIds } from './read'
 import { getTable, type TableMeta } from './registry'
@@ -141,13 +141,14 @@ async function update(res: Response, meta: TableMeta, items: { id: string; field
   const ids = items.map((item) => item.id)
   const locked = meta.name === 'profiles' ? ', received_locked_at AS locked' : ''
   const existing = await rows(
-    sql(`SELECT id${own ? `, ${own.ownColumn} AS owner` : ''}${locked} FROM ${meta.name} WHERE id IN ${IN_LIST}`, list(ids)),
+    sql(`SELECT id${own ? `, ${own.ownColumn} AS owner, status` : ''}${locked} FROM ${meta.name} WHERE id IN ${IN_LIST}`, list(ids)),
   )
   const found = new Map(existing.map((row) => [row.id, row]))
-  for (const id of ids) {
-    const row = found.get(id)
-    if (!row) throw notFound(`${meta.label} ${id}`)
+  for (const item of items) {
+    const row = found.get(item.id)
+    if (!row) throw notFound(`${meta.label} ${item.id}`)
     if (own && row.owner !== user.id) throw forbidden('You can only change records assigned to you')
+    if (own && ownStatusLocked(row.status, item.fields)) throw forbidden('You may not change Status on a video that is Used', 'Status')
   }
 
   const now = nowIso()

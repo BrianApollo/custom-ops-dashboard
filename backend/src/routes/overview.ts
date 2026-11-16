@@ -6,6 +6,7 @@ import { today } from '../lib/dates'
 import { badRequest, forbidden } from '../lib/errors'
 import { RECORD_ID } from '../lib/ids'
 import { editorKpi, scriptsPerPeriod, type DoneVideo } from '../lib/overview'
+import { groupRemaining, type RemainingRow } from '../lib/remaining'
 import { isAdmin } from '../permissions'
 
 // The three tabs of the Overview page, each as finished numbers. Only the
@@ -133,6 +134,44 @@ overviewRouter.get('/overview/editor-kpi', async (req, res) => {
         return [{ editorId: e.id, editorName: e.name, totalScripts: kpi.totalScripts, cumulativeDeficit: kpi.cumulativeDeficit, months }]
       }),
     }
+  })
+})
+
+// GET /overview/remaining?editorId=
+// Per editor, the scripts they still have a To Do video on, Active products only.
+overviewRouter.get('/overview/remaining', async (req, res) => {
+  const user = currentUser(res)
+  // the same rule as the editor tracker: an editor may see their own list and nobody else's
+  if (!isAdmin(user.role) && !(user.role === 'video_editor' && req.query.editorId === user.id)) throw forbidden()
+  const one = await editor(req.query.editorId)
+
+  await cached(req, res, async () => {
+    const found = await rows(
+      sql(
+        `SELECT v.editor_id, u.name AS editor_name, p.id AS product_id, p.product_name, s.id AS script_id, s.name AS script_name,
+           s.base_script_number, count(*) AS todo, min(v.created_at) AS oldest_todo
+         FROM videos v
+         JOIN users u ON u.id = v.editor_id
+         JOIN video_scripts s ON s.id = v.script_id
+         JOIN products p ON p.id = v.product_id
+         WHERE v.status = 'To Do' AND p.status = 'Active' AND coalesce(u.name, '') != ? ${one ? 'AND v.editor_id = ?' : ''}
+         GROUP BY v.editor_id, s.id, p.id`,
+        AI_EDITOR,
+        ...(one ? [one.id] : []),
+      ),
+    )
+    const remaining: RemainingRow[] = found.map((row) => ({
+      editorId: row.editor_id as string,
+      editorName: (row.editor_name as string | null) ?? null,
+      productId: row.product_id as string,
+      productName: (row.product_name as string | null) ?? null,
+      scriptId: row.script_id as string,
+      scriptName: (row.script_name as string | null) ?? null,
+      baseScriptNumber: typeof row.base_script_number === 'number' ? row.base_script_number : null,
+      todo: Number(row.todo) || 0,
+      oldestTodo: typeof row.oldest_todo === 'string' && row.oldest_todo ? row.oldest_todo : null,
+    }))
+    return { editors: groupRemaining(remaining) }
   })
 })
 

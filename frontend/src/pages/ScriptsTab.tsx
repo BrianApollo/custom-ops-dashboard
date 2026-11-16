@@ -29,17 +29,29 @@ interface Script {
   progress: number | null
   editors: { id: string | null; name: string | null; videos: number }[]
   videos: { id: string; name: string | null; format: string | null; textVersion: string | null; status: string | null }[]
+  hookFamily: string | null
+  // null until the script has a score
+  score: { status: string; rankScore: number | null; spend: number; purchases: number } | null
 }
 
 interface ScriptsPage {
   records: Script[]
   total: number
   counts: { all: number; assigned: number; unassigned: number }
+  scoresComputedAt: string | null
 }
 
 const CHIPS = ['Assigned', 'Unassigned']
 
 const nameOf = (script: Script) => script.name || 'Untitled'
+
+const money = (n: number) => `$${Math.round(n).toLocaleString()}`
+
+function scoresUpdated(computedAt: string | null | undefined) {
+  if (!computedAt) return null
+  const when = new Date(computedAt)
+  return Number.isNaN(when.getTime()) ? null : `Scores updated ${when.toLocaleDateString()}`
+}
 
 // A script is assigned once videos have been made from it; its editors and progress come from those videos
 export function ScriptsTab({ product, productColumn }: Props) {
@@ -135,6 +147,19 @@ export function ScriptsTab({ product, productColumn }: Props) {
         )
       },
     },
+    { header: 'Score', cell: (script) => (script.score ? <StatusBadge status={script.score.status} /> : null) },
+    {
+      header: 'Rank',
+      align: 'right',
+      cell: (script) => <span className="tabular-nums">{script.score?.rankScore != null ? script.score.rankScore.toFixed(2) : ''}</span>,
+    },
+    { header: 'Spend', align: 'right', cell: (script) => <span className="tabular-nums">{script.score ? money(script.score.spend) : ''}</span> },
+    {
+      header: 'Purchases',
+      align: 'right',
+      cell: (script) => <span className="tabular-nums">{script.score ? Math.round(script.score.purchases).toLocaleString() : ''}</span>,
+    },
+    { header: 'Hook family', cell: (script) => (script.score ? (script.hookFamily ?? '') : '') },
   ]
   if (isAdmin) {
     columns.push({
@@ -196,6 +221,8 @@ export function ScriptsTab({ product, productColumn }: Props) {
             Assign to editors
           </button>
         )}
+
+        {scoresUpdated(data?.scoresComputedAt) && <p className="text-sm text-neutral-500">{scoresUpdated(data?.scoresComputedAt)}</p>}
 
         <SearchAndRefresh noun="scripts" value={search} onChange={(value) => filter(() => setSearch(value))} loading={loading} onRefresh={refresh} />
 

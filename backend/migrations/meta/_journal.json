@@ -57,6 +57,34 @@
       "when": 1794821836351,
       "tag": "0007_profile_hub_received",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1794821837351,
+      "tag": "0008_media_assets",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1794823698697,
+      "tag": "0009_media_asset_files",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1794824809682,
+      "tag": "0010_media_asset_tags",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1794829734602,
+      "tag": "0011_adlab_video_fields",
+      "breakpoints": true
     }
   ]
 }

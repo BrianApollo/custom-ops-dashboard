@@ -7,6 +7,7 @@ import { batch, nowIso, rows, sql } from '../lib/d1'
 import { ApiError, forbidden, invalid, notFound } from '../lib/errors'
 import { recordId, RECORD_ID } from '../lib/ids'
 import { keyFromUrl, presignUpload, publicUrl } from '../lib/storage'
+import { fileNameMatchesVideo } from '../lib/uploadName'
 import { ruleFor } from '../permissions'
 
 // Files live in one R2 bucket. The browser uploads straight to R2 through a
@@ -48,13 +49,28 @@ async function productName(productId: unknown) {
   return product.product_name as string
 }
 
+// An editor uploads only the file of a video assigned to them: a row of the
+// kind's table owned by them, in this product, whose name gives this file name
+async function requireOwnVideo(user: AuthUser, kind: Kind, productId: string, fileName: string) {
+  const { table } = KINDS[kind]
+  const rule = ruleFor(user.role, table).update
+  if (typeof rule !== 'object') return
+  const candidates = await rows(
+    sql(`SELECT video_name FROM ${table} WHERE ${rule.ownColumn} = ? AND product_id = ?`, user.id, productId),
+  )
+  if (!candidates.some((row) => fileNameMatchesVideo(fileName, row.video_name))) {
+    throw forbidden('You can only upload files for videos assigned to you')
+  }
+}
+
 // POST /storage/presign { kind, productId | profileId, fileName, contentType, contentLength, field? }
 storageRouter.post('/storage/presign', async (req, res) => {
   const body = req.body ?? {}
   const kind = body.kind as Kind
   const spec = KINDS[kind]
   if (!spec) throw invalid(`kind must be one of: ${Object.keys(KINDS).join(', ')}`, 'kind')
-  if (!mayUpload(currentUser(res), kind)) throw forbidden()
+  const user = currentUser(res)
+  if (!mayUpload(user, kind)) throw forbidden()
 
   const fileName = segment(body.fileName, 'fileName')
   const { contentType, contentLength } = body
@@ -75,7 +91,9 @@ storageRouter.post('/storage/presign', async (req, res) => {
     await productName(body.productId)
     key = `${body.productId}/${fileName}`
   } else {
-    key = `${await productName(body.productId)}/${spec.folder}/${fileName}`
+    const product = await productName(body.productId)
+    await requireOwnVideo(user, kind, body.productId, fileName)
+    key = `${product}/${spec.folder}/${fileName}`
   }
 
   res.json({ uploadUrl: await presignUpload(key, contentType, contentLength), publicUrl: publicUrl(key), key })

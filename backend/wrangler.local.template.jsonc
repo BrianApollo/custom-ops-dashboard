@@ -1,0 +1,37 @@
+{
+  // Local-only copy of wrangler.template.jsonc. scripts/local-setup.mjs copies it
+  // to backend/.local/wrangler.jsonc, so every path below is relative to backend/.local/.
+  // No binding here may reach Cloudflare: D1, R2 and the workflow all run in
+  // Miniflare on this machine, and there is no cron trigger.
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "ops-dashboard-local",
+  "main": "../src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "../../frontend/dist",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/health"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "ops-dashboard-local",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "../migrations"
+    }
+  ],
+  "workflows": [
+    {
+      "name": "ops-dashboard-local-image-generation",
+      "binding": "IMAGE_GENERATION",
+      "class_name": "ImageGenerationWorkflow"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "BUCKET",
+      "bucket_name": "ops-dashboard-local"
+    }
+  ]
+}

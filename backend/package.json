@@ -9,7 +9,13 @@
     "types": "npm run config && wrangler types",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "npm run config && wrangler d1 migrations apply DB --remote"
+    "db:migrate": "npm run config && wrangler d1 migrations apply DB --remote",
+    "local:setup": "node scripts/local-setup.mjs",
+    "local:seed": "node scripts/local-seed.mjs",
+    "local:dev": "node scripts/local-dev.mjs",
+    "local:reset": "node scripts/local-reset.mjs",
+    "local:copy": "node scripts/local-copy-data.mjs",
+    "test": "vitest run"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",
@@ -24,6 +30,7 @@
     "@types/express": "^5.0.6",
     "@types/node": "^26.6.4",
     "drizzle-kit": "^0.31.11",
+    "vitest": "^5.1.0",
     "wrangler": "^4.148.0"
   }
 }

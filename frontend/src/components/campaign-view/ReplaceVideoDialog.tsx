@@ -15,6 +15,8 @@ interface Props {
   adAccountId: string
   cred: string
   productId?: string
+  // the dashboard campaign this ad belongs to
+  campaignRecordId?: string
   onClose: () => void
   // something on Facebook changed, so the page should read it again
   onChanged: () => void
@@ -31,6 +33,7 @@ const AFTERWARDS = [
 interface Job {
   status: 'processing' | 'done' | 'failed'
   adId: string | null
+  markedUsed?: { table: string; id: string; campaignRecordId: string | null; status: string | null } | null
   error: string | null
 }
 
@@ -47,7 +50,7 @@ interface Run {
 // new ad that copies the old ad's text, link and page with the new video in it,
 // after which the old ad is paused or deleted. The old dashboard stopped after
 // the first half and called it an edit; here both halves happen and are named.
-export function ReplaceVideoDialog({ ad, adAccountId, cred, productId, onClose, onChanged }: Props) {
+export function ReplaceVideoDialog({ ad, adAccountId, cred, productId, campaignRecordId, onClose, onChanged }: Props) {
   const { expire } = useAuth()
   const alive = useAlive()
   const [videoId, setVideoId] = useState('')
@@ -86,6 +89,7 @@ export function ReplaceVideoDialog({ ad, adAccountId, cred, productId, onClose, 
     const step = (message: string) => alive.current && setRun((current) => ({ ...current, step: message }))
     const problems: string[] = []
     let newAdId: string | undefined
+    let unmarked: string | undefined
     setNow(Date.now())
     setRun({ phase: 'working', step: 'Sending the video to Facebook…', startedAt: Date.now(), problems: [] })
 
@@ -100,6 +104,7 @@ export function ReplaceVideoDialog({ ad, adAccountId, cred, productId, onClose, 
           videoUrl: video.creativeLink,
           name: name.trim(),
           utm: utm.trim() || undefined,
+          campaignRecordId,
         },
       })
 
@@ -120,6 +125,7 @@ export function ReplaceVideoDialog({ ad, adAccountId, cred, productId, onClose, 
       }
       if (job.status === 'failed' || !job.adId) throw new Error(job.error ?? 'Facebook did not create the new ad')
       newAdId = job.adId
+      if (job.markedUsed?.status !== 'Used') unmarked = `“${video.name}” was not marked Used in the dashboard.`
 
       // the new ad is made paused; from here each step is reported by itself, because the ad already exists
       if (start) {
@@ -146,6 +152,7 @@ export function ReplaceVideoDialog({ ad, adAccountId, cred, productId, onClose, 
       if (error instanceof ApiError && error.status === 401) return expire()
       problems.push(messageOf(error))
     }
+    if (unmarked) problems.push(unmarked)
     if (!alive.current) return
     if (newAdId) onChanged()
     setRun((current) => ({ ...current, phase: newAdId ? 'done' : 'failed', step: '', problems, newAdId }))

@@ -463,14 +463,16 @@ export function AddAdsDialog({ fbCampaignId, fbAdAccountId, cred, onClose, onAdd
         step('Recording the new ads…')
         const idsOf = (kind: Item['kind']) => created.filter((item) => item.kind === kind).map((item) => item.id)
         try {
-          await post(`/campaigns/${recordId}/media`, { videoIds: idsOf('video'), aiVideoIds: idsOf('ai'), imageIds: idsOf('image') })
-          for (const [table, kind] of [
-            ['videos', 'video'],
-            ['ai_videos', 'ai'],
-          ] as const) {
-            for (const ids of chunks(idsOf(kind), 200)) {
-              await api(`/data/${table}`, { method: 'PATCH', body: { records: ids.map((id) => ({ id, fields: { Status: 'Used' } })) } })
-            }
+          const answer = await post<{ markedUsed?: { videos?: string[]; aiVideos?: string[] } }>(`/campaigns/${recordId}/media`, {
+            videoIds: idsOf('video'),
+            aiVideoIds: idsOf('ai'),
+            imageIds: idsOf('image'),
+            markUsed: true,
+          })
+          const marked = new Set([...(answer.markedUsed?.videos ?? []), ...(answer.markedUsed?.aiVideos ?? [])])
+          const unmarked = created.filter((item) => item.kind !== 'image' && !marked.has(item.id))
+          if (unmarked.length) {
+            failures.push(`The ads were created, but these videos were not marked Used: ${unmarked.map((item) => item.name).join(', ')}`)
           }
         } catch (error) {
           warning = `The ads were created, but recording them on this campaign failed: ${messageOf(error)}`
