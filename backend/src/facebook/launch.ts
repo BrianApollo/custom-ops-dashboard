@@ -130,7 +130,7 @@ launchRouter.post('/ad-accounts/:id/adsets/verify', async (req, res) => {
         ? compareDeclaration(declaration, stored, countries)
         : [{ field: 'dsa_beneficiary' as const, expected: declaration.dsa_beneficiary, actual: 'the ad set could not be read back' }]
       if (mismatches.length) {
-        throw new ApiError(409, 'declaration_mismatch', mismatchMessage(mismatches, adSetId, false), null, {
+        throw new ApiError(409, 'declaration_mismatch', mismatchMessage(mismatches, adSetId, null), null, {
           mismatches,
           adSetId,
           adSetDeleted: false,

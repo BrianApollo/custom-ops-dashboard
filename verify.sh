@@ -88,6 +88,21 @@ else
   echo "$guard_out" | sed 's/^/      /'
 fi
 
+# (f) nothing on the upstream main branch is missing from this checkout.
+# Skipped where no `upstream` remote is set up (the hosted check).
+if git remote get-url upstream >/dev/null 2>&1; then
+  if ! git fetch -q upstream main 2>/dev/null; then
+    fail "upstream is merged (could not fetch upstream)"
+  elif git merge-base --is-ancestor upstream/main HEAD; then
+    pass "upstream is merged"
+  else
+    fail "upstream is merged ($(git rev-list --count HEAD..upstream/main) upstream commit(s) not in this checkout)"
+    git log --oneline HEAD..upstream/main | head -10 | sed 's/^/      /'
+  fi
+else
+  echo "SKIP  upstream is merged (no upstream remote)"
+fi
+
 if [ "$failures" -eq 0 ]; then
   echo "ALL CHECKS PASSED"
   exit 0

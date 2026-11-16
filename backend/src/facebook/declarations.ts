@@ -103,12 +103,16 @@ export function compareDeclaration(sent: Declaration, stored: Record<string, unk
 }
 
 // The error text for a declaration Facebook did not store
-export function mismatchMessage(mismatches: Mismatch[], adSetId: string, deleted: boolean) {
+// `deleted` is null when no delete was tried (an ad set that was only checked)
+export function mismatchMessage(mismatches: Mismatch[], adSetId: string, deleted: boolean | null) {
   const fields = mismatches
     .map(({ field, expected, actual }) => `${field} expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`)
     .join('; ')
-  const after = deleted
-    ? `The ad set ${adSetId} was deleted.`
-    : `The ad set ${adSetId} could not be deleted; delete it in Ads Manager before launching again.`
+  const after =
+    deleted === null
+      ? `The ad set ${adSetId} was left as it is; fix or delete it in Ads Manager before launching again.`
+      : deleted
+        ? `The ad set ${adSetId} was deleted.`
+        : `The ad set ${adSetId} could not be deleted; delete it in Ads Manager before launching again.`
   return `Facebook did not store the ad set's declaration: ${fields}. ${after}`
 }
