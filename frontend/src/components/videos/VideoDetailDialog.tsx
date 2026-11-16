@@ -37,6 +37,18 @@ function videoData(record: ApiRecord): Partial<VideoData> {
   }
 }
 
+function textList(record: ApiRecord, field: string): string[] {
+  try {
+    const parsed: unknown = JSON.parse(text(record, field) || '[]')
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string' && item.trim() !== '') : []
+  } catch {
+    return []
+  }
+}
+
+const DETAIL_FIELDS = ['Angle', 'Landing Page', 'Batch', 'Pipeline', 'Persona', 'Source System']
+const COPY_FIELDS = ['Primary Texts', 'Headlines', 'Descriptions']
+
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div>
@@ -105,6 +117,8 @@ export function VideoDetailDialog({ videoId, kind, onClose, onChanged }: Props) 
   const script = kind === 'video' ? (first(record, 'Script Content (from Script)') ?? '') : text(record, 'Script')
   const data = videoData(record)
   const savedNotes = text(record, 'Notes')
+  const details = DETAIL_FIELDS.map((field) => [field, text(record, field)] as const).filter(([, value]) => value)
+  const copyLists = COPY_FIELDS.map((field) => [field, textList(record, field)] as const).filter(([, items]) => items.length > 0)
 
   const isAdmin = user?.role === 'admin'
   // the server lets an editor change only the videos assigned to them
@@ -195,7 +209,30 @@ export function VideoDetailDialog({ videoId, kind, onClose, onChanged }: Props) 
                   .filter(Boolean)
                   .join(' · ')}
               </Field>
+              {details.map(([label, value]) => (
+                <Field key={label} label={label}>
+                  <span className="break-words">{value}</span>
+                </Field>
+              ))}
             </dl>
+
+            {copyLists.length > 0 && (
+              <section aria-label="Ad copy" className="space-y-3">
+                <h3 className="text-sm font-medium">Ad copy</h3>
+                {copyLists.map(([label, items]) => (
+                  <div key={label}>
+                    <h4 className="text-xs text-neutral-500">{label}</h4>
+                    <ol className="mt-1 space-y-1.5">
+                      {items.map((item, i) => (
+                        <li key={i} className="max-h-40 overflow-y-auto rounded-md bg-neutral-50 px-3 py-2 leading-relaxed whitespace-pre-wrap text-neutral-800">
+                          {item}
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                ))}
+              </section>
+            )}
 
             {link && (
               <section aria-label="Video file">

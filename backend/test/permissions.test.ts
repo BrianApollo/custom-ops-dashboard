@@ -42,6 +42,16 @@ describe('ruleFor', () => {
     expect(ruleFor('video_editor', 'schedule')).toEqual({})
   })
 
+  it('lets video editors read script scores and media assets, and nothing more', () => {
+    for (const table of ['script_scores', 'media_assets']) {
+      expect(ruleFor('video_editor', table)).toEqual({ read: true })
+      expect(ruleFor('admin', table)).toEqual(FULL)
+      expect(ruleFor('none', table)).toEqual({})
+    }
+    expect(ruleFor('service', 'script_scores')).toEqual({ read: true, create: true })
+    expect(ruleFor('service', 'media_assets')).toEqual({})
+  })
+
   it('limits the service credential', () => {
     expect(ruleFor('service', 'schedule')).toEqual(FULL)
     expect(ruleFor('service', 'products')).toEqual({ read: true })

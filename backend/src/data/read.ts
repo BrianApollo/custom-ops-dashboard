@@ -3,6 +3,8 @@ import { settings } from '../env'
 import { IN_LIST, list, sql, type Row } from '../lib/d1'
 import { badRequest } from '../lib/errors'
 import { RECORD_ID } from '../lib/ids'
+import { linkOrNull } from '../lib/fileLink'
+import { decodeTags } from '../lib/tags'
 import { urlPath } from '../lib/storage'
 import { canSeeSecrets, NEVER_FIELDS, ruleFor, SECRET_FIELDS } from '../permissions'
 import { tableByName, type TableMeta } from './registry'
@@ -101,6 +103,8 @@ export function project(meta: TableMeta, names: string[]) {
         const computed = meta.computed[name]
         add(computed.sql, (value, out) => {
           if (computed.shape === 'flag') out[name] = Boolean(value)
+          else if (computed.shape === 'link') out[name] = linkOrNull(settings.PUBLIC_FILES_URL, value)
+          else if (computed.shape === 'tags') out[name] = decodeTags(value)
           else if (value !== null && value !== '') out[name] = computed.shape === 'lookup' ? [value] : value
         })
         break

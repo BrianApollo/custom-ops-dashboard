@@ -7,6 +7,7 @@ import { ProductLogo } from '../components/ProductPicker'
 import { button, StatusBadge, Tip } from '../components/ui'
 import { useFetch, useWorkspace } from '../data'
 import { EditorsTab } from './overview/EditorsTab'
+import { RemainingTab } from './overview/RemainingTab'
 import { ScriptsKpiTab } from './overview/ScriptsKpiTab'
 
 // One row of GET /overview/products
@@ -40,6 +41,7 @@ const COUNTS: { key: Count; group: string; label: string; more?: boolean }[] = [
 const TABS = [
   { value: 'overview', label: 'Overview' },
   { value: 'editors', label: 'Video Editors' },
+  { value: 'remaining', label: 'Remaining' },
   { value: 'scripts', label: 'Scripts' },
 ]
 
@@ -118,6 +120,9 @@ export function Overview() {
       </Tabs.Content>
       <Tabs.Content value="editors" className="pt-5 outline-none">
         <EditorsTab />
+      </Tabs.Content>
+      <Tabs.Content value="remaining" className="pt-5 outline-none">
+        <RemainingTab />
       </Tabs.Content>
       <Tabs.Content value="scripts" className="pt-5 outline-none">
         <ScriptsKpiTab />

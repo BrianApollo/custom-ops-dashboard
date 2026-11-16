@@ -69,6 +69,9 @@ export const PERMISSIONS: Record<string, Partial<Record<Role, TableRule>>> = {
   rule_execution_log: { service: { read: true, create: true } },
   master_profile: { service: READ },
   profiles: { service: READ },
+  media_assets: reference,
+  tag_types: reference,
+  media_asset_tags: reference,
 }
 
 export const isAdmin = (role: Role) => role === 'admin'

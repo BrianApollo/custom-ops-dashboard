@@ -5,11 +5,14 @@ import {
   Clock,
   Gavel,
   IdCard,
+  Images,
   LayoutDashboard,
   LogOut,
+  Moon,
   Network,
   Package,
   SlidersHorizontal,
+  Sun,
   Users,
   type LucideIcon,
 } from 'lucide-react'
@@ -18,6 +21,7 @@ import { useState } from 'react'
 import { Navigate, NavLink, Outlet, useLocation } from 'react-router'
 import { useAuth } from '../auth'
 import { WorkspaceProvider } from '../data'
+import { applyTheme, currentTheme, type Theme } from '../lib/theme'
 import { Tip } from './ui'
 
 const NAV: { to: string; label: string; icon: LucideIcon }[] = [
@@ -28,10 +32,14 @@ const NAV: { to: string; label: string; icon: LucideIcon }[] = [
   { to: '/rules', label: 'Rules', icon: Gavel },
   { to: '/infrastructure', label: 'Infrastructure', icon: Network },
   { to: '/profile-hub', label: 'Profile Hub', icon: IdCard },
+  { to: '/library', label: 'Library', icon: Images },
   { to: '/users', label: 'Users', icon: Users },
 ]
 
-const EDITOR_NAV: typeof NAV = [{ to: '/videos', label: 'My videos', icon: Clapperboard }]
+const EDITOR_NAV: typeof NAV = [
+  { to: '/videos', label: 'My videos', icon: Clapperboard },
+  { to: '/library', label: 'Library', icon: Images },
+]
 
 const COLLAPSED_KEY ='ops.sidebar.collapsed'
 
@@ -43,18 +51,39 @@ export function Shell() {
     () => (localStorage.getItem(COLLAPSED_KEY) ?? String(window.innerWidth < 900)) === 'true',
   )
 
+  const [theme, setTheme] = useState<Theme>(currentTheme)
+
   if (user === undefined) return <p className="p-8 text-sm text-neutral-500">Loading…</p>
   if (user === null) return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />
 
-  // a video editor's whole app is their own list of videos
+  // a video editor's whole app is their own list of videos and the library
   const isEditor = user.role === 'video editor'
-  if (isEditor && location.pathname !== '/videos') return <Navigate to="/videos" replace />
+  if (isEditor && !EDITOR_NAV.some((item) => item.to === location.pathname)) return <Navigate to="/videos" replace />
   const nav = isEditor ? EDITOR_NAV : NAV
 
   function toggle() {
     localStorage.setItem(COLLAPSED_KEY, String(!collapsed))
     setCollapsed(!collapsed)
   }
+
+  function flipTheme() {
+    const next = theme === 'dark' ? 'light' : 'dark'
+    applyTheme(next)
+    setTheme(next)
+  }
+
+  const themeLabel = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'
+  const themeButton = (
+    <Tip label={themeLabel} side="bottom">
+      <button
+        onClick={flipTheme}
+        aria-label={themeLabel}
+        className="flex size-8 items-center justify-center rounded-md border border-neutral-200 bg-white text-neutral-500 shadow-sm hover:bg-neutral-100 hover:text-neutral-900 focus-visible:outline-2 focus-visible:outline-blue-700"
+      >
+        {theme === 'dark' ? <Sun className="size-4" /> : <Moon className="size-4" />}
+      </button>
+    </Tip>
+  )
 
   return (
     <div className="flex min-h-screen bg-neutral-50 text-neutral-900">
@@ -153,8 +182,9 @@ export function Shell() {
       </aside>
 
       <main className="min-w-0 flex-1">
+        <div className="flex justify-end px-6 pt-2">{themeButton}</div>
         {/* every page uses the full width beside the sidebar */}
-        <div className="px-6 py-6">
+        <div className="px-6 pt-1 pb-6">
           <WorkspaceProvider>
             <Outlet />
           </WorkspaceProvider>

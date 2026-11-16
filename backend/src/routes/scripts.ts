@@ -56,9 +56,10 @@ scriptsRouter.get('/scripts', async (req, res) => {
   const chosen = assigned === undefined ? filters : [...filters, assigned === 'true' ? HAS_VIDEOS : `NOT ${HAS_VIDEOS}`]
   const where = chosen.length ? `WHERE ${chosen.join(' AND ')}` : ''
 
-  const [page, totals] = await batch([
+  const [page, totals, scored] = await batch([
     sql(
-      `SELECT s.id, s.name, s.product_id, p.product_name, s.author_id, s.created_at,
+      `SELECT s.id, s.name, s.product_id, p.product_name, s.author_id, s.created_at, s.hook_family,
+         sc.status AS score_status, sc.rank_score, sc.spend AS score_spend, sc.purchases AS score_purchases,
          (SELECT count(*) FROM videos v WHERE v.script_id = s.id) AS video_count,
          (SELECT count(*) FROM videos v WHERE v.script_id = s.id AND v.status != 'To Do') AS past_to_do,
          (SELECT json_group_array(json_object('id', e.editor_id, 'name', e.name, 'videos', e.n))
@@ -70,12 +71,14 @@ scriptsRouter.get('/scripts', async (req, res) => {
                    'creativeLink', x.creative_link))
             FROM (SELECT * FROM videos v WHERE v.script_id = s.id ORDER BY v.video_name DESC) x) AS videos
        FROM video_scripts s LEFT JOIN products p ON p.id = s.product_id
+       LEFT JOIN script_scores sc ON sc.video_script_id = s.id
        ${where} ORDER BY ${orderBy}, s.id LIMIT ? OFFSET ?`,
       ...params,
       pageSize,
       skip,
     ),
     sql(`SELECT count(*) AS total, coalesce(sum(${HAS_VIDEOS}), 0) AS assigned FROM video_scripts s ${base}`, ...params),
+    sql('SELECT max(computed_at) AS computed_at FROM script_scores'),
   ])
 
   const all = totals.results[0].total as number
@@ -99,11 +102,19 @@ scriptsRouter.get('/scripts', async (req, res) => {
         progress: videoCount ? (row.past_to_do as number) / videoCount : null,
         editors: JSON.parse(row.editors as string),
         videos: JSON.parse(row.videos as string),
+        hookFamily: row.hook_family,
+        // from our own tracking; null when the script has no score yet
+        score:
+          row.score_status === null
+            ? null
+            : { status: row.score_status, rankScore: row.rank_score, spend: row.score_spend, purchases: row.score_purchases },
       }
     }),
     // rows matching every filter, for the pager
     total: assigned === undefined ? counts.all : assigned === 'true' ? counts.assigned : counts.unassigned,
     counts,
+    // when the newest score was computed; null when there are no scores
+    scoresComputedAt: (scored.results[0]?.computed_at as string | null) ?? null,
     limit: pageSize,
     offset: skip,
   })

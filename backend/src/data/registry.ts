@@ -6,7 +6,9 @@ export interface ComputedField {
   sql: string
   // Airtable returns a lookup as a one-item array and a count or formula as a plain value
   // `flag` is always present, as true or false
-  shape: 'value' | 'lookup' | 'flag'
+  // `link` turns a stored file key into its public address, and is always present, as the address or null
+  // `tags` turns the asset's tag rows into `{ key: value | [values] }`, and is always present
+  shape: 'value' | 'lookup' | 'flag' | 'link' | 'tags'
 }
 
 // Fields that exist only in this API, not in Airtable
@@ -16,6 +18,14 @@ const API_ONLY: Record<string, Record<string, ComputedField>> = {
   },
   business_managers: {
     hasToken: { sql: `(t.system_user_token IS NOT NULL AND t.system_user_token != '')`, shape: 'flag' },
+  },
+  media_assets: {
+    fileUrl: { sql: 't.file_key', shape: 'link' },
+    thumbnailUrl: { sql: 't.thumbnail_key', shape: 'link' },
+    tags: {
+      sql: `(SELECT json_group_array(json_object('k', g.k, 'v', g.v, 'kind', g.kind, 'm', g.m)) FROM (SELECT x.tag_key AS k, x.value AS v, y.kind AS kind, y.multi AS m FROM media_asset_tags x LEFT JOIN tag_types y ON y.key = x.tag_key WHERE x.asset_id = t.id ORDER BY x.tag_key, x.value) g)`,
+      shape: 'tags',
+    },
   },
 }
 
