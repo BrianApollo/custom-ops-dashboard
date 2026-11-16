@@ -33,10 +33,11 @@ tokensRouter.post('/connect', async (req, res) => {
   const expiresOn = day(info.dataAccessExpiresAt ? info.dataAccessExpiresAt * 1000 : Date.now() + expiresIn * 1000)
 
   const now = nowIso()
+  // a profile added from a supplier line in the Profile Hub is found by the UID it arrived with
   const [existing] = await rows(
     sql(
-      `SELECT id FROM profiles WHERE profile_id = ?1 OR profile_name = ?2
-       ORDER BY (profile_id = ?1) DESC, created_at LIMIT 1`,
+      `SELECT id FROM profiles WHERE profile_id = ?1 OR profile_fb_uid = ?1 OR uid = ?1 OR profile_name = ?2
+       ORDER BY (profile_id = ?1 OR profile_fb_uid = ?1 OR uid = ?1) DESC, created_at LIMIT 1`,
       me.id,
       me.name,
     ),
@@ -46,7 +47,8 @@ tokensRouter.post('/connect', async (req, res) => {
     existing
       ? sql(
           `UPDATE profiles SET profile_name = ?, profile_id = ?, permanent_token = ?, permanent_token_end_date = ?,
-             profile_status = 'Active', token_valid = 1, last_sync = ?, updated_at = ? WHERE id = ?`,
+             profile_status = CASE WHEN profile_status IN ('Banned', 'Inactive') THEN profile_status ELSE 'Active' END,
+             token_valid = 1, last_sync = ?, updated_at = ? WHERE id = ?`,
           me.name,
           me.id,
           token,

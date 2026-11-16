@@ -61,6 +61,12 @@ export const profiles = sqliteTable('profiles', {
   sop7BmAccess: checkbox('sop_7_bm_access'),
   sop8AssetsAssigned: checkbox('sop_8_assets_assigned'),
   sop9PageAccess: checkbox('sop_9_page_access'),
+  // Profile Hub: `original_data` is read-only once this is set
+  receivedLockedAt: text('received_locked_at'),
+  // which mailbox the Facebook login uses today: received | mailbox | recovery
+  fbEmailSource: text('fb_email_source'),
+  // the mailbox the team made, kept apart from the Facebook login email
+  mailboxEmail: text('mailbox_email'),
   ...timestamps,
 })
 
