@@ -86,8 +86,11 @@ launchRouter.post('/ad-accounts/:id/adsets', async (req, res) => {
       const created = await client.post(`${id}/adsets`, params)
       // Facebook accepts the ad set whether or not it keeps the declaration, so it is read back.
       // One that did not keep it has no ads yet and is deleted at once.
-      const stored = await client.get(created.id as string, { fields: DECLARATION_FIELDS })
-      const mismatches = compareDeclaration(declaration, stored, countries)
+      // a read that fails proves nothing, so it counts as a declaration that was not kept
+      const stored = await client.get(created.id as string, { fields: DECLARATION_FIELDS }).catch(() => null)
+      const mismatches = stored
+        ? compareDeclaration(declaration, stored, countries)
+        : [{ field: 'dsa_beneficiary' as const, expected: declaration.dsa_beneficiary, actual: 'the ad set could not be read back' }]
       if (mismatches.length) {
         let deleted = false
         try {
