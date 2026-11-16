@@ -30,8 +30,9 @@ export type FieldMapping =
 export interface TableMapping {
   // tables are matched to a base by name; the same table has a different id in each base
   airtableName: string
-  // the id in the original base, still accepted by the API as another name for the table
-  airtableId: string
+  // the id in the original base, still accepted by the API as another name for the table;
+  // absent for tables that only exist in D1
+  airtableId?: string
   d1Table: string
   fields: Record<string, FieldMapping>
 }
@@ -385,6 +386,12 @@ export const TABLES: TableMapping[] = [
       'Base Script Number': integer('base_script_number'),
       // who made the script; manual numbering skips automation scripts
       Source: d1Choice('source', ['manual', 'automation']),
+      // where the script came from (editor, Ad Lab, MOTION, toon) and the idea behind it
+      'Script Source': d1Only('script_source'),
+      'Donor Ref': d1Only('donor_ref'),
+      'Hook Family': d1Only('hook_family'),
+      'Proof Type': d1Only('proof_type'),
+      Structure: d1Only('structure'),
       // USC base only
       'Videos copy': ignored,
       Videos: inverse('videos', 'script_id'),
@@ -393,6 +400,32 @@ export const TABLES: TableMapping[] = [
       'Scripts To Do': computed,
       'Scripts Past To Do': computed,
       Calculation: computed,
+    },
+  },
+  // D1 only: how each script sold, written by the daily scoring job, one row per script
+  {
+    airtableName: 'Script Scores',
+    d1Table: 'script_scores',
+    fields: {
+      'Video Script': fk('video_script_id', 'video_scripts'),
+      Product: fk('product_id', 'products'),
+      'Script Number': integer('script_number'),
+      // winner, solid, average, weak, dud, learning or promising-retest
+      Status: text('status'),
+      Spend: real('spend'),
+      Purchases: real('purchases'),
+      Revenue: real('revenue'),
+      'ROAS Shrunk': real('roas_shrunk'),
+      'Index Shrunk': real('index_shrunk'),
+      'Funded Share': real('funded_share'),
+      Campaigns: integer('campaigns'),
+      'Campaigns 30d': integer('campaigns_30d'),
+      Fatigued: checkbox('fatigued'),
+      Overused: checkbox('overused'),
+      'Rank Score': real('rank_score'),
+      'First Day': text('first_day'),
+      'Last Day': text('last_day'),
+      'Computed At': text('computed_at'),
     },
   },
   {

@@ -43,6 +43,10 @@ export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
     error = new ApiError(413, 'too_large', 'Request body is too large')
   } else if (/FOREIGN KEY constraint failed/.test(String(err?.message))) {
     error = invalid('A linked record does not exist')
+  } else if (/NOT NULL constraint failed: \w+\.\w+/.test(String(err?.message))) {
+    // the D1 column name, e.g. `rank_score`; the field names are in the table map
+    const column = /NOT NULL constraint failed: \w+\.(\w+)/.exec(String(err.message))![1]
+    error = invalid(`A required field is missing (${column})`)
   } else {
     console.error(err)
     error = new ApiError(500, 'internal_error', 'Something went wrong')

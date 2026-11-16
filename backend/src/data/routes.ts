@@ -7,7 +7,7 @@ import { recordId, RECORD_ID } from '../lib/ids'
 import { ruleFor } from '../permissions'
 import { countStatement, inOrder, listStatement, parseListQuery, project, readableFields, selectByIds } from './read'
 import { getTable, type TableMeta } from './registry'
-import { createStatements, planWrite, updateStatements } from './write'
+import { createStatements, planWrite, updateStatements, type WritePlan } from './write'
 
 export const dataRouter = Router()
 
@@ -22,10 +22,10 @@ function cacheable(res: Response, meta: TableMeta) {
   res.set('Cache-Control', SENSITIVE.has(meta.name) ? 'no-store' : 'private, no-cache')
 }
 
-function recordsFrom(body: unknown, needsId: boolean) {
+function recordsFrom(body: unknown, needsId: boolean, max: number) {
   const records = (body as { records?: unknown })?.records
   if (!Array.isArray(records) || records.length === 0) throw badRequest('records must be a non-empty list')
-  if (records.length > MAX_BATCH) throw badRequest(`At most ${MAX_BATCH} records per request`)
+  if (records.length > max) throw badRequest(`At most ${max} records per request`)
   if (needsId && records.some((r) => typeof r?.id !== 'string')) throw badRequest('Every record needs an id')
   return records as { id: string; fields: unknown }[]
 }
@@ -71,16 +71,17 @@ dataRouter.post('/:table', async (req, res) => {
   if (!ruleFor(user.role, meta.name).create) throw forbidden()
 
   const many = Array.isArray(req.body?.records)
-  const inputs = many ? recordsFrom(req.body, false).map((r) => r.fields) : [req.body?.fields]
+  const inputs = many ? recordsFrom(req.body, false, meta.maxBatch).map((r) => r.fields) : [req.body?.fields]
   const now = nowIso()
-  const ids = inputs.map(() => recordId())
+  const plans = inputs.map((fields) => planWrite(meta, fields, user))
+  const ids = meta.upsertOn ? await upsertIds(meta, plans) : inputs.map(() => recordId())
   const projection = project(meta, readableFields(meta, user, true))
   const respond = (found: Awaited<ReturnType<typeof rows>>) => {
     const records = inOrder(found.map(projection.decode), ids)
     res.json(many ? { records } : records[0])
   }
 
-  const statements = inputs.flatMap((fields, i) => createStatements(meta, ids[i], planWrite(meta, fields, user), now))
+  const statements = plans.flatMap((plan, i) => createStatements(meta, ids[i], plan, now))
   if (SENSITIVE.has(meta.name)) statements.push(auditStatement(now, user.id, 'create', meta.name, null, ids))
 
   // With an Idempotency-Key, the key is stored in the same transaction as the
@@ -114,6 +115,18 @@ dataRouter.post('/:table', async (req, res) => {
     respond(await rows(selectByIds(meta, projection, ids)))
   }
 })
+
+// For an upsert table, a record whose key matches an existing row keeps that
+// row's id; the insert then updates the row instead of adding one.
+async function upsertIds(meta: TableMeta, plans: WritePlan[]) {
+  const { field, column } = meta.upsertOn!
+  const keys = plans.map((plan) => plan.columns[column])
+  if (keys.some((key) => key === undefined || key === null)) throw invalid(`Every record needs ${field}`, field)
+  if (new Set(keys).size !== keys.length) throw invalid(`${field} appears more than once in this request`, field)
+  const existing = await rows(sql(`SELECT id, ${column} AS k FROM ${meta.name} WHERE ${column} IN ${IN_LIST}`, list(keys)))
+  const found = new Map(existing.map((row) => [row.k, row.id as string]))
+  return keys.map((key) => found.get(key) ?? recordId())
+}
 
 async function update(res: Response, meta: TableMeta, items: { id: string; fields: unknown }[]) {
   const user = currentUser(res)
@@ -152,7 +165,7 @@ dataRouter.patch('/:table/:id', async (req, res) => {
 
 dataRouter.patch('/:table', async (req, res) => {
   const meta = getTable(req.params.table)
-  res.json({ records: await update(res, meta, recordsFrom(req.body, true)) })
+  res.json({ records: await update(res, meta, recordsFrom(req.body, true, meta.maxBatch)) })
 })
 
 async function remove(res: Response, meta: TableMeta, ids: string[]) {

@@ -33,6 +33,10 @@ export interface TableMeta {
   // column -> timestamp column to stamp whenever it is written
   touch: Record<string, string>
   readOnly: Set<string>
+  // a create matching an existing row on this field updates that row instead
+  upsertOn: { field: string; column: string } | null
+  // most records one create or update request may carry
+  maxBatch: number
 }
 
 // Computed Airtable fields the dashboard reads. Each is a correlated subquery
@@ -84,6 +88,17 @@ const READ_ONLY: Record<string, string[]> = {
   campaigns: ['Launched At'],
 }
 
+// tables where a create is an upsert: one row per value of this field
+const UPSERT_ON: Record<string, string> = {
+  script_scores: 'Video Script',
+}
+
+const DEFAULT_MAX_BATCH = 200
+// the daily scoring job sends every script of a run in one request
+const MAX_BATCH: Record<string, number> = {
+  script_scores: 500,
+}
+
 const byKey = new Map<string, TableMeta>()
 const byName = new Map<string, TableMeta>()
 
@@ -106,10 +121,20 @@ for (const table of TABLES) {
     ),
     touch: TOUCH[table.d1Table] ?? {},
     readOnly: new Set(READ_ONLY[table.d1Table] ?? []),
+    upsertOn: upsertOn(table.d1Table, fields),
+    maxBatch: MAX_BATCH[table.d1Table] ?? DEFAULT_MAX_BATCH,
   }
   byName.set(meta.name, meta)
   // a table can be addressed by its Airtable name, Airtable id or D1 name
-  for (const key of [table.airtableName, table.airtableId, table.d1Table]) byKey.set(key, meta)
+  for (const key of [table.airtableName, table.airtableId, table.d1Table]) if (key) byKey.set(key, meta)
+}
+
+function upsertOn(table: string, fields: Map<string, FieldMapping>) {
+  const name = UPSERT_ON[table]
+  if (!name) return null
+  const field = fields.get(name)
+  if (field?.kind !== 'column' && field?.kind !== 'fk') throw new Error(`${table}: cannot upsert on ${name}`)
+  return { field: name, column: field.column }
 }
 
 export function getTable(key: string): TableMeta {
