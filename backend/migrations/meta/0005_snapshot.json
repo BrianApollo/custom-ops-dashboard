@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "adabbb9e-bc50-4a30-b799-9c662c351710",
+  "id": "ea73516b-8461-4449-a5de-55e7055df353",
   "prevId": "30bcbee6-f521-4ba1-933a-30e27ce9a15a",
   "tables": {
     "ad_accounts": {
@@ -2193,27 +2193,6 @@
           "autoincrement": false,
           "default": false
         },
-        "received_locked_at": {
-          "name": "received_locked_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "fb_email_source": {
-          "name": "fb_email_source",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "mailbox_email": {
-          "name": "mailbox_email",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "text",
@@ -2819,6 +2798,14 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'manual'"
         },
         "created_at": {
           "name": "created_at",

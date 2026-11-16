@@ -18,9 +18,12 @@
 // to exports/<run>/, which is never committed because it holds credentials.
 import { createHash } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { TABLES, type FieldMapping, type TableMapping } from '@ops/shared'
+import { TABLES as ALL_TABLES, type FieldMapping, type TableMapping } from '@ops/shared'
 import { AwsClient } from 'aws4fetch'
 import { env } from './env'
+
+// tables that only exist in D1 (no Airtable id) are never exported or loaded
+const TABLES = ALL_TABLES.filter((t) => t.airtableId)
 
 type AirtableRecord = { id: string; createdTime: string; fields: Record<string, unknown> }
 type AirtableField = { name: string; type: string }

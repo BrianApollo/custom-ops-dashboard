@@ -10,6 +10,7 @@ import { ChecklistPanel } from './ChecklistPanel'
 import { CloneDialog, launchedOn } from './CloneDialog'
 import {
   CALLS_TO_ACTION,
+  ctaLabel,
   campaignFields,
   checklist,
   countriesFrom,
@@ -227,7 +228,7 @@ function Launcher({ campaign, onReload }: { campaign: ApiRecord; onReload: () =>
     })
     consider('cta', true, () => {
       const wanted = text(template, 'Call to Action')
-      const label = CALLS_TO_ACTION.find((cta) => facebookCta(cta) === facebookCta(wanted)) ?? wanted
+      const label = ctaLabel(wanted)
       // The call to action is never empty, so it counts as empty while it is the default.
       // On its own the template fills it only for a campaign that has never had one saved,
       // or a deliberate `Learn More` would be replaced on every visit.
@@ -345,7 +346,7 @@ function Launcher({ campaign, onReload }: { campaign: ApiRecord; onReload: () =>
       start: draft.start && /^\d{2}:\d{2}$/.test(time) ? `${draft.start.split('T')[0]}T${time}` : draft.start,
       budget: from.budget || (snap.config?.budget ? String(snap.config.budget) : draft.budget),
       countries: geo.length ? geo : draft.countries,
-      callToAction: text(source, 'CTA') || snap.config?.ctaOverride || draft.callToAction,
+      callToAction: ctaLabel(text(source, 'CTA') || snap.config?.ctaOverride || '') || draft.callToAction,
       websiteUrl: from.websiteUrl || snap.config?.websiteUrl || '',
       tracking: from.tracking || snap.config?.utms || '',
       displayLink: from.displayLink || snap.config?.displayLink || '',

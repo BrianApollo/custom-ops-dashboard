@@ -1,4 +1,4 @@
-import { index, integer, real, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { index, integer, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core'
 import { checkbox, id, parent, timestamps } from './columns'
 
 export const users = sqliteTable(
@@ -305,11 +305,53 @@ export const videoScripts = sqliteTable(
     notes: text('notes'),
     hookNumber: integer('hook_number'),
     baseScriptNumber: integer('base_script_number'),
+    // who made the script: the dashboard (`manual`) or the Ad Lab upload (`automation`)
+    source: text('source', { enum: ['manual', 'automation'] }).notNull().default('manual'),
+    // where the script came from (editor, Ad Lab, MOTION, toon) and the idea behind it
+    scriptSource: text('script_source'),
+    donorRef: text('donor_ref'),
+    hookFamily: text('hook_family'),
+    proofType: text('proof_type'),
+    structure: text('structure'),
     ...timestamps,
   },
   (t) => [
     index('idx_video_scripts_product_id').on(t.productId),
     index('idx_video_scripts_author_id').on(t.authorId),
+  ],
+)
+
+// how each script sold, written by the daily scoring job; one row per script
+export const scriptScores = sqliteTable(
+  'script_scores',
+  {
+    id: id(),
+    videoScriptId: text('video_script_id')
+      .notNull()
+      .references(() => videoScripts.id, { onDelete: 'cascade' }),
+    productId: parent('product_id', () => products),
+    scriptNumber: integer('script_number').notNull(),
+    // winner, solid, average, weak, dud, learning or promising-retest
+    status: text('status').notNull(),
+    spend: real('spend').notNull(),
+    purchases: real('purchases').notNull(),
+    revenue: real('revenue').notNull(),
+    roasShrunk: real('roas_shrunk'),
+    indexShrunk: real('index_shrunk'),
+    fundedShare: real('funded_share'),
+    campaigns: integer('campaigns'),
+    campaigns30d: integer('campaigns_30d'),
+    fatigued: checkbox('fatigued'),
+    overused: checkbox('overused'),
+    rankScore: real('rank_score'),
+    firstDay: text('first_day'),
+    lastDay: text('last_day'),
+    computedAt: text('computed_at').notNull(),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('script_scores_script').on(t.videoScriptId),
+    index('script_scores_rank').on(t.productId, t.status, t.rankScore),
   ],
 )
 

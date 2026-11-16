@@ -147,6 +147,9 @@ export function planWrite(meta: TableMeta, input: unknown, user: AuthUser, own?:
 
     switch (field.kind) {
       case 'column':
+        if (field.values && !field.values.includes(value as string)) {
+          throw invalid(`${name} must be one of: ${field.values.join(', ')}`, name)
+        }
         plan.columns[field.column] = columnValue(name, field.type, value)
         break
       case 'fk': {
@@ -234,8 +237,13 @@ export function createStatements(
   const names = [...Object.keys(columns), ...Object.keys(computed)]
   const placeholders = [...Object.keys(columns).map(() => '?'), ...Object.values(computed).map((c) => c.sql)]
   const params = [...Object.values(columns), ...Object.values(computed).flatMap((c) => c.params)]
+  // an upsert table updates the row that already holds this key, changing only the fields sent
+  const changed = names.filter((name) => name !== 'id' && name !== 'created_at' && name !== meta.upsertOn?.column)
+  const upsert = meta.upsertOn
+    ? ` ON CONFLICT (${meta.upsertOn.column}) DO UPDATE SET ${changed.map((c) => `${c} = excluded.${c}`).join(', ')}`
+    : ''
   return [
-    sql(`INSERT INTO ${meta.name} (${names.join(', ')}) VALUES (${placeholders.join(', ')})`, ...params),
+    sql(`INSERT INTO ${meta.name} (${names.join(', ')}) VALUES (${placeholders.join(', ')})${upsert}`, ...params),
     ...plan.links.flatMap(({ field, ids }) => linkStatements(field, id, ids, true)),
     ...plan.files.flatMap((files) => fileStatements(meta, id, files, now, true)),
   ]

@@ -52,6 +52,8 @@ export const PERMISSIONS: Record<string, Partial<Record<Role, TableRule>>> = {
   images: reference,
   temp_images: { ...reference, service: { read: true, create: true } },
   video_scripts: reference,
+  // written by the daily scoring job
+  script_scores: { ...reference, service: { read: true, create: true } },
   videos: { video_editor: OWN_VIDEOS },
   ai_videos: { video_editor: OWN_VIDEOS },
   campaigns: { video_editor: READ, service: READ },

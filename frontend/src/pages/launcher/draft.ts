@@ -105,7 +105,7 @@ export function draftFrom(campaign: ApiRecord): Draft {
     start: /^\d{4}-\d{2}-\d{2}$/.test(date) ? `${date}T${/^\d{2}:\d{2}/.test(time) ? time.slice(0, 5) : '00:00'}` : '',
     budget: text(campaign, 'Budget'),
     countries: countriesFrom(text(campaign, 'Location Targeting')),
-    callToAction: text(campaign, 'CTA') || CALLS_TO_ACTION[0],
+    callToAction: ctaLabel(text(campaign, 'CTA')) || CALLS_TO_ACTION[0],
     presetId: linked(campaign, 'Selected Ad Profile')[0] ?? '',
     presetTexts: null,
     linkVariable: text(campaign, 'Link Variable'),
@@ -186,6 +186,10 @@ export const isWebUrl = (value: string) => /^https?:\/\/[^\s/?#]+\.[^\s]+$/i.tes
 
 // `Learn More` -> `LEARN_MORE`, the form Facebook takes
 export const facebookCta = (label: string) => label.trim().toUpperCase().replace(/\s+/g, '_')
+
+// A saved call to action as its label in the list: `LEARN_MORE` -> `Learn More`. One the list
+// does not have is kept as it is.
+export const ctaLabel = (saved: string) => CALLS_TO_ACTION.find((cta) => facebookCta(cta) === facebookCta(saved)) ?? saved.trim()
 
 // Currencies Facebook counts in whole units. The budget is sent in hundredths,
 // which would be a hundred times too much for these, so launching in them is refused.

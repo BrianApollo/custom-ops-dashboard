@@ -2,8 +2,9 @@ export type ColumnType = 'text' | 'integer' | 'real' | 'checkbox' | 'json'
 
 export type FieldMapping =
   // a plain value stored in one column. `d1Only` marks a field the dashboard
-  // uses that has no counterpart in the Airtable base
-  | { kind: 'column'; column: string; type: ColumnType; d1Only?: boolean }
+  // uses that has no counterpart in the Airtable base. `values`, when set, are
+  // the only values the field may hold, and it may not be emptied
+  | { kind: 'column'; column: string; type: ColumnType; d1Only?: boolean; values?: string[] }
   // a link that holds at most one record id, stored as a foreign key
   | { kind: 'fk'; column: string; target: string }
   // a many-to-many link stored in a junction table. `side` is 'a' for the
@@ -29,8 +30,9 @@ export type FieldMapping =
 export interface TableMapping {
   // tables are matched to a base by name; the same table has a different id in each base
   airtableName: string
-  // the id in the original base, still accepted by the API as another name for the table
-  airtableId: string
+  // the id in the original base, still accepted by the API as another name for the table;
+  // absent for tables that only exist in D1
+  airtableId?: string
   d1Table: string
   fields: Record<string, FieldMapping>
 }
@@ -41,6 +43,7 @@ const real = (column: string): FieldMapping => ({ kind: 'column', column, type: 
 const checkbox = (column: string): FieldMapping => ({ kind: 'column', column, type: 'checkbox' })
 const json = (column: string): FieldMapping => ({ kind: 'column', column, type: 'json' })
 const d1Only = (column: string): FieldMapping => ({ kind: 'column', column, type: 'text', d1Only: true })
+const d1Choice = (column: string, values: string[]): FieldMapping => ({ kind: 'column', column, type: 'text', d1Only: true, values })
 const fk = (column: string, target: string): FieldMapping => ({ kind: 'fk', column, target })
 const inverse = (table: string, column: string): FieldMapping => ({ kind: 'inverse', table, column })
 const attachment = (field: string): FieldMapping => ({ kind: 'attachment', field })
@@ -384,6 +387,14 @@ export const TABLES: TableMapping[] = [
       Notes: text('notes'),
       'Hook Number': integer('hook_number'),
       'Base Script Number': integer('base_script_number'),
+      // who made the script; manual numbering skips automation scripts
+      Source: d1Choice('source', ['manual', 'automation']),
+      // where the script came from (editor, Ad Lab, MOTION, toon) and the idea behind it
+      'Script Source': d1Only('script_source'),
+      'Donor Ref': d1Only('donor_ref'),
+      'Hook Family': d1Only('hook_family'),
+      'Proof Type': d1Only('proof_type'),
+      Structure: d1Only('structure'),
       // USC base only
       'Videos copy': ignored,
       Videos: inverse('videos', 'script_id'),
@@ -392,6 +403,32 @@ export const TABLES: TableMapping[] = [
       'Scripts To Do': computed,
       'Scripts Past To Do': computed,
       Calculation: computed,
+    },
+  },
+  // D1 only: how each script sold, written by the daily scoring job, one row per script
+  {
+    airtableName: 'Script Scores',
+    d1Table: 'script_scores',
+    fields: {
+      'Video Script': fk('video_script_id', 'video_scripts'),
+      Product: fk('product_id', 'products'),
+      'Script Number': integer('script_number'),
+      // winner, solid, average, weak, dud, learning or promising-retest
+      Status: text('status'),
+      Spend: real('spend'),
+      Purchases: real('purchases'),
+      Revenue: real('revenue'),
+      'ROAS Shrunk': real('roas_shrunk'),
+      'Index Shrunk': real('index_shrunk'),
+      'Funded Share': real('funded_share'),
+      Campaigns: integer('campaigns'),
+      'Campaigns 30d': integer('campaigns_30d'),
+      Fatigued: checkbox('fatigued'),
+      Overused: checkbox('overused'),
+      'Rank Score': real('rank_score'),
+      'First Day': text('first_day'),
+      'Last Day': text('last_day'),
+      'Computed At': text('computed_at'),
     },
   },
   {
