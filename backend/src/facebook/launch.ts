@@ -110,6 +110,37 @@ launchRouter.post('/ad-accounts/:id/adsets', async (req, res) => {
   )
 })
 
+// POST /ad-accounts/{id}/adsets/verify { cred, adSetId, adSet }
+// For an ad set the launcher found instead of made: reads its declaration back and
+// compares it with what `adSet` would have sent. Nothing is changed or deleted.
+launchRouter.post('/ad-accounts/:id/adsets/verify', async (req, res) => {
+  adAccount(req.params.id)
+  const body = req.body ?? {}
+  const a = body.adSet ?? {}
+  const adSetId = graphId(body.adSetId, 'adSetId')
+  const countries = texts(a.targeting?.geoLocations?.countries, 'adSet.targeting.geoLocations.countries').map((c) => c.toUpperCase())
+  if (!countries.length) throw invalid('At least one country is required', 'adSet.targeting.geoLocations.countries')
+  const declaration = buildDeclaration(a, countries)
+
+  res.json(
+    await withCredential(body.cred, async ({ client }) => {
+      // a read that fails proves nothing, so it counts as a declaration that was not kept
+      const stored = await client.get(adSetId, { fields: DECLARATION_FIELDS }).catch(() => null)
+      const mismatches = stored
+        ? compareDeclaration(declaration, stored, countries)
+        : [{ field: 'dsa_beneficiary' as const, expected: declaration.dsa_beneficiary, actual: 'the ad set could not be read back' }]
+      if (mismatches.length) {
+        throw new ApiError(409, 'declaration_mismatch', mismatchMessage(mismatches, adSetId, false), null, {
+          mismatches,
+          adSetId,
+          adSetDeleted: false,
+        })
+      }
+      return { ok: true, rate: client.rate }
+    }),
+  )
+})
+
 const videoState = (video: FbObject) => ({
   id: video.id as string,
   title: video.title as string | undefined,
