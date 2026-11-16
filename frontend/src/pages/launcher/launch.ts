@@ -60,6 +60,8 @@ export interface LaunchPlan {
   // per day, in the ad account's currency
   budget: number
   budgetCents: number
+  // set once a daily budget above 500 has been confirmed
+  allowHighBudget?: boolean
   countries: string[]
   // as typed, and as the moment it means in the ad account's time zone (Unix seconds)
   start: string
@@ -427,6 +429,7 @@ class Runner {
           specialAdCategories: [],
           dailyBudget: plan.budgetCents,
           bidStrategy: 'LOWEST_COST_WITHOUT_CAP',
+          ...(plan.allowHighBudget ? { allowHighBudget: true } : {}),
         },
       })
       id = made.id

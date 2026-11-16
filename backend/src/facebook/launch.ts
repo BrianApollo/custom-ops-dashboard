@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { badRequest, invalid } from '../lib/errors'
 import { adAccount, graphId, type BatchItem, type FbObject } from '../lib/facebook'
 import { ownFile } from '../lib/storage'
+import { BUDGET_CONFIRM_MESSAGE, budgetNeedsConfirm } from './budget'
 import { withCredential } from './credentials'
 
 // The steps of a campaign launch, one call each. The frontend's launch runner
@@ -36,6 +37,7 @@ launchRouter.post('/ad-accounts/:id/campaigns', async (req, res) => {
   if (!Number.isInteger(c.dailyBudget) || c.dailyBudget <= 0) {
     throw invalid('campaign.dailyBudget must be a positive whole number of cents', 'campaign.dailyBudget')
   }
+  if (budgetNeedsConfirm(c.dailyBudget, c.allowHighBudget)) throw invalid(BUDGET_CONFIRM_MESSAGE, 'campaign.dailyBudget')
   const params = {
     name: text(c.name, 'campaign.name'),
     objective: text(c.objective, 'campaign.objective'),

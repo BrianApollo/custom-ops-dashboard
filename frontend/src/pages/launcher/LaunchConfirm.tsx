@@ -1,6 +1,7 @@
-import { TriangleAlert } from 'lucide-react'
-import { Dialog } from 'radix-ui'
+import { Check, TriangleAlert } from 'lucide-react'
+import { Checkbox, Dialog } from 'radix-ui'
 import { useState, type ReactNode } from 'react'
+import { checkbox } from '../../components/DataTable'
 import { button } from '../../components/ui'
 import { countryLabel } from './draft'
 import type { LaunchPlan } from './launch'
@@ -13,8 +14,11 @@ interface Props {
   existing?: string
   onClose: () => void
   // saves the draft and starts the launch; resolves to a message when it could not start
-  onConfirm: () => Promise<string | undefined>
+  onConfirm: (allowHighBudget: boolean) => Promise<string | undefined>
 }
+
+// a daily budget above this, in cents, is launched only after it is confirmed here
+export const HIGH_BUDGET_CENTS = 50_000
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -37,11 +41,13 @@ export function LaunchConfirm({ plan, blockers, existing, onClose, onConfirm }: 
   const startsAt = new Date(plan.startTime * 1000)
   const passed = startsAt.getTime() <= Date.now()
   const active = plan.status === 'ACTIVE'
+  const highBudget = plan.budgetCents > HIGH_BUDGET_CENTS
+  const [budgetConfirmed, setBudgetConfirmed] = useState(false)
 
   async function confirm() {
     setBusy(true)
     setError(undefined)
-    const problem = await onConfirm()
+    const problem = await onConfirm(highBudget && budgetConfirmed)
     if (problem) {
       setError(problem)
       setBusy(false)
@@ -107,6 +113,29 @@ export function LaunchConfirm({ plan, blockers, existing, onClose, onConfirm }: 
             </Row>
           </dl>
 
+          {highBudget && (
+            <div className="mt-4 rounded-md bg-amber-50 p-3 text-sm text-amber-900">
+              <p className="flex gap-2">
+                <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+                <span>
+                  The daily budget is {plan.budget.toFixed(2)} {plan.adAccount.currency}, above 500. Check it is not a typing mistake.
+                </span>
+              </p>
+              <label className="mt-3 flex items-center gap-3">
+                <Checkbox.Root
+                  checked={budgetConfirmed}
+                  disabled={busy}
+                  onCheckedChange={(on) => setBudgetConfirmed(on === true)}
+                  className={`${checkbox} shrink-0`}
+                >
+                  <Checkbox.Indicator>
+                    <Check className="size-3" />
+                  </Checkbox.Indicator>
+                </Checkbox.Root>
+                I confirm a daily budget of {plan.budget.toFixed(2)} {plan.adAccount.currency}
+              </label>
+            </div>
+          )}
           {existing && (
             <p className="mt-4 flex gap-2 rounded-md bg-amber-50 p-3 text-sm text-amber-900">
               <TriangleAlert className="mt-0.5 size-4 shrink-0" />
@@ -132,7 +161,7 @@ export function LaunchConfirm({ plan, blockers, existing, onClose, onConfirm }: 
             <button type="button" disabled={busy} onClick={onClose} className={button.secondary}>
               Cancel
             </button>
-            <button type="button" disabled={busy || blockers.length > 0} onClick={() => void confirm()} className={button.primary}>
+            <button type="button" disabled={busy || blockers.length > 0 || (highBudget && !budgetConfirmed)} onClick={() => void confirm()} className={button.primary}>
               {busy ? 'Starting…' : `Launch ${plural(plan.media.length, 'ad')}`}
             </button>
           </div>
