@@ -599,11 +599,11 @@ function Launcher({ campaign, onReload }: { campaign: ApiRecord; onReload: () =>
           blockers={confirming.blockers}
           existing={existing || undefined}
           onClose={() => setDialog(undefined)}
-          onConfirm={async () => {
+          onConfirm={async (allowHighBudget) => {
             // the record must hold what is about to be launched
             if (!(await autosave.save())) return 'The draft could not be saved, so nothing was launched. Check the connection and try again.'
             setDialog(undefined)
-            startLaunch(confirming.plan)
+            startLaunch(allowHighBudget ? { ...confirming.plan, allowHighBudget: true } : confirming.plan)
             return undefined
           }}
         />

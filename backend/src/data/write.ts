@@ -4,7 +4,7 @@ import { IN_LIST, list, sql } from '../lib/d1'
 import { forbidden, invalid } from '../lib/errors'
 import { attachmentId, RECORD_ID } from '../lib/ids'
 import { keyFromUrl } from '../lib/storage'
-import { canSeeSecrets, NEVER_FIELDS, ruleFor, SECRET_FIELDS, type OwnRule } from '../permissions'
+import { canSeeSecrets, NEVER_FIELDS, ownValueAllowed, ruleFor, SECRET_FIELDS, type OwnRule } from '../permissions'
 import type { TableMeta } from './registry'
 
 type Junction = Extract<FieldMapping, { kind: 'junction' }>
@@ -141,6 +141,7 @@ export function planWrite(meta: TableMeta, input: unknown, user: AuthUser, own?:
     ) {
       throw forbidden(`You may not change ${name}`, name)
     }
+    if (own && !ownValueAllowed(own, name, value)) throw forbidden(`You may not set ${name} to ${String(value)}`, name)
     if (meta.readOnly.has(name) || field.kind === 'computed' || field.kind === 'inverse') {
       throw invalid(`${name} is read-only`, name)
     }

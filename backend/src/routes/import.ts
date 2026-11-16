@@ -5,6 +5,7 @@ import * as schema from '../db/schema'
 import { settings } from '../env'
 import { batch, list, rows, sql } from '../lib/d1'
 import { badRequest, forbidden, notFound } from '../lib/errors'
+import { isReadOnlyQuery } from '../lib/readOnlySql'
 
 // Bulk loading for the Airtable import script. Only the service token may call
 // these, and only while IMPORT_ENABLED is true. Rows arrive already shaped as
@@ -140,9 +141,10 @@ importRouter.post('/prune', async (req, res) => {
 importRouter.post('/query', async (req, res) => {
   const text = req.body?.sql
   const params = req.body?.params ?? []
-  if (typeof text !== 'string' || !/^\s*(select|with)\b/i.test(text) && text.trim() !== 'PRAGMA optimize') {
-    throw badRequest('Only SELECT statements are allowed')
+  if (!isReadOnlyQuery(text)) {
+    const several = typeof text === 'string' && text.includes(';')
+    throw badRequest(several ? 'One statement, with a list of params' : 'Only SELECT statements are allowed')
   }
-  if (text.includes(';') || !Array.isArray(params)) throw badRequest('One statement, with a list of params')
-  res.json({ rows: await rows(sql(text, ...params)) })
+  if (!Array.isArray(params)) throw badRequest('One statement, with a list of params')
+  res.json({ rows: await rows(sql(text as string, ...params)) })
 })
