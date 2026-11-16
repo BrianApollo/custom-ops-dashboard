@@ -5,6 +5,7 @@ import { batch, IN_LIST, list, nowIso, rows, sql } from '../lib/d1'
 import { badRequest, conflict, forbidden, invalid, notFound } from '../lib/errors'
 import { recordId, RECORD_ID } from '../lib/ids'
 import { ruleFor } from '../permissions'
+import { resetScore, startCheck } from '../scoring/start'
 import { countStatement, inOrder, listStatement, parseListQuery, project, readableFields, selectByIds } from './read'
 import { getTable, type TableMeta } from './registry'
 import { createStatements, planWrite, updateStatements, type WritePlan } from './write'
@@ -147,13 +148,21 @@ async function update(res: Response, meta: TableMeta, items: { id: string; field
 
   const now = nowIso()
   const projection = project(meta, readableFields(meta, user, true))
-  const statements = items.flatMap((item) =>
-    updateStatements(meta, item.id, planWrite(meta, item.fields, user, own), now),
+  const plans = items.map((item) => planWrite(meta, item.fields, user, own))
+  const statements = plans.flatMap((plan, i) => updateStatements(meta, items[i].id, plan, now))
+
+  // a video given a new file is scored again (src/scoring)
+  const rescored = items.flatMap(({ id }, i) =>
+    meta.name === 'videos' && 'creative_link' in plans[i].columns ? [{ id, hasFile: Boolean(plans[i].columns.creative_link) }] : [],
   )
+  for (const video of rescored) statements.push(resetScore(video.id, video.hasFile))
+
   if (SENSITIVE.has(meta.name)) statements.push(auditStatement(now, user.id, 'update', meta.name, null, ids))
   statements.push(selectByIds(meta, projection, ids))
 
   const results = await batch(statements)
+  // the check ties its result to the upload time, which the update just set to `now`
+  await Promise.all(rescored.filter((video) => video.hasFile).map((video) => startCheck(video.id, now)))
   return inOrder(results[results.length - 1].results.map(projection.decode), ids)
 }
 

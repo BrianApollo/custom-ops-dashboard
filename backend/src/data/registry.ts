@@ -82,7 +82,8 @@ const TOUCH: Record<string, Record<string, string>> = {
 }
 
 const READ_ONLY: Record<string, string[]> = {
-  videos: ['Last Upload At'],
+  // the score is written only by the check (src/scoring)
+  videos: ['Last Upload At', 'Score', 'Score Notes', 'Score Status', 'Scored At'],
   ai_videos: ['Last Upload At'],
   schedule: ['Last Reponse Time'],
   campaigns: ['Launched At'],

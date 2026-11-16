@@ -5,6 +5,7 @@ import { useAuth } from '../auth'
 import type { Column } from '../components/DataTable'
 import { button, Select, StatusBadge, StatusChips, Tip } from '../components/ui'
 import { CreateAiVideoDialog } from '../components/videos/CreateAiVideoDialog'
+import { ScoreBadge, usePollWhile, type ScoreStatus } from '../components/videos/ScoreBadge'
 import { PAGE_SIZES, SearchAndRefresh, ServerTable, useDebounced, useEditors, useServerList } from '../components/videos/ServerTable'
 import { statusLabel, VideoDetailDialog } from '../components/videos/VideoDetailDialog'
 import { useWorkspace, type Product } from '../data'
@@ -27,6 +28,9 @@ interface Video {
   createdTime: string
   editorName: string | null
   productName: string | null
+  // the automatic check, sent to admins for scripted videos only
+  score?: number | null
+  scoreStatus?: ScoreStatus | null
 }
 
 interface VideosPage {
@@ -40,6 +44,11 @@ type Kind = 'script' | 'ai'
 // the chips, in the order a video moves through them
 const STATUSES = ['To Do', 'Review', 'Available', 'Used']
 const ALL_EDITORS = 'all'
+const SORTS = [
+  { value: '-createdTime', label: 'Newest first' },
+  { value: 'score', label: 'Lowest score first' },
+  { value: '-score', label: 'Highest score first' },
+]
 
 const pill = 'rounded px-1.5 py-0.5 text-[11px] font-medium'
 
@@ -58,19 +67,24 @@ export function VideosTab({ product, productColumn }: Props) {
   const [pageSize, setPageSize] = useState(PAGE_SIZES[0])
   const [viewing, setViewing] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
+  const [pickedSort, setPickedSort] = useState(SORTS[0].value)
 
   // scripted videos open on what is ready to use; the short AI list opens unfiltered
   const status = picked ?? (kind === 'script' ? 'Available' : '')
   // an editor starts on their own videos and can widen the list to everyone's
   const editor = pickedEditor ?? (user?.role === 'video editor' ? user.id : ALL_EDITORS)
   const term = useDebounced(search.trim())
+  // the automatic check scores scripted videos, and only admins see it
+  const showScore = isAdmin && kind === 'script'
+  const sort = showScore ? pickedSort : SORTS[0].value
 
-  const query = new URLSearchParams({ kind, limit: String(pageSize), offset: String(page * pageSize) })
+  const query = new URLSearchParams({ kind, limit: String(pageSize), offset: String(page * pageSize), sort })
   if (status) query.set('status', status)
   if (product) query.set('productId', product.id)
   if (editor !== ALL_EDITORS) query.set('editorId', editor)
   if (term) query.set('search', term)
   const { data, error, loading, reload } = useServerList<VideosPage>(`/videos?${query}`)
+  usePollWhile(Boolean(data?.records.some((video) => video.scoreStatus === 'checking')), reload)
 
   // the list can shrink under the current page, e.g. after a video is accepted
   const lastPage = data ? Math.max(0, Math.ceil(data.total / pageSize) - 1) : page
@@ -118,6 +132,7 @@ export function VideosTab({ product, productColumn }: Props) {
     ...(productColumn.length ? [{ header: 'Product', cell: (video: Video) => video.productName ?? '' }] : []),
     { header: 'Editor', cell: (video) => video.editorName ?? '' },
     { header: 'Status', cell: (video) => <StatusBadge status={statusLabel(video.status ?? '')} /> },
+    ...(showScore ? [{ header: 'Score', cell: (video: Video) => <ScoreBadge score={video.score} status={video.scoreStatus} /> }] : []),
     { header: 'Created', cell: (video) => new Date(video.createdTime).toLocaleDateString() },
     {
       header: 'Creative',
@@ -186,6 +201,16 @@ export function VideosTab({ product, productColumn }: Props) {
           onValueChange={(value) => filter(() => setPickedEditor(value))}
           className="w-44"
         />
+
+        {showScore && (
+          <Select
+            label="Sort videos"
+            value={pickedSort}
+            options={SORTS}
+            onValueChange={(value) => filter(() => setPickedSort(value))}
+            className="w-44"
+          />
+        )}
 
         <p className="text-sm text-neutral-600" aria-live="polite">
           {data ? `${data.total.toLocaleString()} ${data.total === 1 ? noun : `${noun}s`}` : ''}

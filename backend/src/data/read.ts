@@ -17,12 +17,13 @@ export interface ApiRecord {
 // The fields this user may read. Secret and forbidden fields are dropped here,
 // before any SQL is built, so they are never selected for the wrong role.
 export function readableFields(meta: TableMeta, user: AuthUser, includeHidden = false) {
-  const only = ruleFor(user.role, meta.name).readFields
+  const { readFields: only, hiddenFields: hidden } = ruleFor(user.role, meta.name)
   const names: string[] = []
   for (const [name, field] of meta.fields) {
     if (NEVER_FIELDS.has(name)) continue
     if (SECRET_FIELDS.has(name) && !canSeeSecrets(user.role)) continue
     if (only && !only.includes(name)) continue
+    if (hidden?.includes(name)) continue
     if (field.kind === 'computed' && !meta.computed[name]) continue
     if (!includeHidden && meta.hiddenByDefault.has(name)) continue
     names.push(name)

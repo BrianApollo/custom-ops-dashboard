@@ -446,6 +446,11 @@ export const TABLES: TableMapping[] = [
       'First Upload At': text('first_upload_at'),
       'Last Upload At': text('creative_link_updated_at'),
       'Video Data': text('video_data'),
+      // written by the automatic check after each upload; not in Airtable
+      Score: integer('score'),
+      'Score Notes': text('score_notes'),
+      'Score Status': text('score_status'),
+      'Scored At': text('scored_at'),
       // USC base only
       'Choosen Editors Best Video': ignored,
       'Lauched Campaigns': ignored,

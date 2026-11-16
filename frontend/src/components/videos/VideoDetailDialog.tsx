@@ -1,4 +1,4 @@
-import { Check, Copy, ExternalLink, Undo2, Upload, X } from 'lucide-react'
+import { Check, Copy, ExternalLink, RefreshCw, Undo2, Upload, X } from 'lucide-react'
 import { Dialog, Label, Progress } from 'radix-ui'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useAuth } from '../../auth'
@@ -6,6 +6,7 @@ import { useFetch, useWorkspace } from '../../data'
 import { api, text, type ApiRecord } from '../../lib/api'
 import { UPLOAD_STATUSES, uploadVideoFile, type VideoData, type VideoKind } from '../../lib/videoUpload'
 import { button, input, StatusBadge } from '../ui'
+import { ScoreBadge, usePollWhile } from './ScoreBadge'
 
 interface Props {
   videoId: string
@@ -56,7 +57,7 @@ export function VideoDetailDialog({ videoId, kind, onClose, onChanged }: Props) 
 
   // undefined until the notes are typed in, so they start from what is saved
   const [notes, setNotes] = useState<string>()
-  const [busy, setBusy] = useState<'upload' | 'status' | 'notes' | null>(null)
+  const [busy, setBusy] = useState<'upload' | 'status' | 'notes' | 'check' | null>(null)
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState<string>()
   const [copied, setCopied] = useState(false)
@@ -65,6 +66,13 @@ export function VideoDetailDialog({ videoId, kind, onClose, onChanged }: Props) 
 
   // closing the dialog stops an upload that is still going
   useEffect(() => () => transfer.current?.abort(), [])
+
+  // the automatic check's result (backend/src/scoring); the server sends it to admins, for Videos only
+  const scoreStatus = record ? text(record, 'Score Status') : ''
+  usePollWhile(scoreStatus === 'checking', () => {
+    reload()
+    onChanged()
+  })
 
   const usedIn = (record?.fields['Used In Campaign'] as string[] | undefined) ?? []
   const linkField = kind === 'video' ? 'Videos Used In This Campaign' : 'Videos copy'
@@ -105,6 +113,8 @@ export function VideoDetailDialog({ videoId, kind, onClose, onChanged }: Props) 
   const script = kind === 'video' ? (first(record, 'Script Content (from Script)') ?? '') : text(record, 'Script')
   const data = videoData(record)
   const savedNotes = text(record, 'Notes')
+  const scoreNotes = text(record, 'Score Notes')
+  const scoredAt = text(record, 'Scored At')
 
   const isAdmin = user?.role === 'admin'
   // the server lets an editor change only the videos assigned to them
@@ -150,6 +160,19 @@ export function VideoDetailDialog({ videoId, kind, onClose, onChanged }: Props) 
       changed()
     } catch (err) {
       setError((err as Error).message)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function recheck() {
+    setBusy('check')
+    setError(undefined)
+    try {
+      await api(`/videos/${videoId}/check`, { method: 'POST' })
+      changed()
+    } catch (err) {
+      setError(`Could not run the check: ${(err as Error).message}`)
     } finally {
       setBusy(null)
     }
@@ -256,6 +279,33 @@ export function VideoDetailDialog({ videoId, kind, onClose, onChanged }: Props) 
                       Or drop a video file here. It is stored as “{name}” and the video goes to review.
                     </p>
                   </>
+                )}
+              </section>
+            )}
+
+            {isAdmin && kind === 'video' && (
+              <section aria-label="Automatic check">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-medium">Score</h3>
+                  <ScoreBadge score={record.fields.Score as number | null | undefined} status={scoreStatus} />
+                  {scoredAt && <span className="text-xs text-neutral-500">checked {new Date(scoredAt).toLocaleString()}</span>}
+                  {link && (
+                    <button
+                      onClick={recheck}
+                      disabled={busy !== null || scoreStatus === 'checking'}
+                      className={`${button.secondary} ml-auto h-7 px-2 text-xs`}
+                    >
+                      <RefreshCw className="size-3.5" />
+                      Run check again
+                    </button>
+                  )}
+                </div>
+                {scoreNotes ? (
+                  <p className="mt-1.5 rounded-md bg-neutral-50 px-3 py-2 leading-relaxed whitespace-pre-wrap text-neutral-800">{scoreNotes}</p>
+                ) : (
+                  <p className="mt-1.5 text-neutral-500">
+                    {scoreStatus === 'checking' ? 'The video is being checked.' : link ? 'Not checked yet.' : 'Checked once a file is uploaded.'}
+                  </p>
                 )}
               </section>
             )}

@@ -4,6 +4,7 @@ import { runNightly } from './executor/nightly'
 
 // Cloudflare Workflows finds the class among the Worker's exports (wrangler.template.jsonc)
 export { ImageGenerationWorkflow } from './generation/workflow'
+export { VideoCheckWorkflow } from './scoring/workflow'
 
 const PORT = 3000
 

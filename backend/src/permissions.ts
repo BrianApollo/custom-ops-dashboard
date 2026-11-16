@@ -19,6 +19,8 @@ export interface TableRule {
   delete?: boolean
   // when set, the only fields this role may read
   readFields?: string[]
+  // fields this role may not read (nor filter or sort by)
+  hiddenFields?: string[]
 }
 
 const ROLES = new Set<Role>(['admin', 'video_editor'])
@@ -54,7 +56,8 @@ export const PERMISSIONS: Record<string, Partial<Record<Role, TableRule>>> = {
   video_scripts: reference,
   // written by the daily scoring job
   script_scores: { ...reference, service: { read: true, create: true } },
-  videos: { video_editor: OWN_VIDEOS },
+  // the automatic check's score is for admins only
+  videos: { video_editor: { ...OWN_VIDEOS, hiddenFields: ['Score', 'Score Notes', 'Score Status', 'Scored At'] } },
   ai_videos: { video_editor: OWN_VIDEOS },
   campaigns: { video_editor: READ, service: READ },
   schedule: { service: FULL },

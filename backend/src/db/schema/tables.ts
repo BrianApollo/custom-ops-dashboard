@@ -367,6 +367,12 @@ export const videos = sqliteTable(
     firstUploadAt: text('first_upload_at'),
     // set whenever creative_link changes
     creativeLinkUpdatedAt: text('creative_link_updated_at'),
+    // the automatic check run after each upload (src/scoring); admins only
+    // 1 to 10, null while checking, after a failed check or before any check
+    score: integer('score'),
+    scoreNotes: text('score_notes'),
+    scoreStatus: text('score_status', { enum: ['checking', 'done', 'failed'] }),
+    scoredAt: text('scored_at'),
     ...timestamps,
   },
   (t) => [

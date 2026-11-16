@@ -1,10 +1,11 @@
 import { Router } from 'express'
 import { currentUser } from '../auth/session'
 import { containsWords, wholeNumber } from '../data/read'
-import { batch, sql } from '../lib/d1'
-import { badRequest, forbidden, invalid } from '../lib/errors'
+import { batch, rows, sql } from '../lib/d1'
+import { badRequest, forbidden, invalid, notFound } from '../lib/errors'
 import { RECORD_ID } from '../lib/ids'
-import { ruleFor } from '../permissions'
+import { isAdmin, ruleFor } from '../permissions'
+import { resetScore, startCheck } from '../scoring/start'
 
 export const videosRouter = Router()
 
@@ -17,7 +18,11 @@ const SORTS: Record<string, string> = {
   createdTime: 'v.created_at ASC, v.video_name COLLATE NOCASE ASC',
   name: 'v.video_name COLLATE NOCASE ASC',
   '-name': 'v.video_name COLLATE NOCASE DESC',
+  // admins, scripted videos only; unscored videos last
+  score: 'v.score IS NULL, v.score ASC, v.created_at DESC',
+  '-score': 'v.score IS NULL, v.score DESC, v.created_at DESC',
 }
+const SCORE_SORTS = new Set(['score', '-score'])
 
 // The Videos screen in one request: a page of videos with editor and product
 // names, plus the totals for the status chips. `kind=ai` is the AI Videos tab.
@@ -28,7 +33,10 @@ videosRouter.get('/videos', async (req, res) => {
   if (Object.keys(unknown).length) throw badRequest(`Unknown parameter ${Object.keys(unknown)[0]}`)
   if (kind !== 'script' && kind !== 'ai') throw invalid('kind must be script or ai', 'kind')
   const table = kind === 'ai' ? 'ai_videos' : 'videos'
-  if (!ruleFor(currentUser(res).role, table).read) throw forbidden()
+  const { role } = currentUser(res)
+  if (!ruleFor(role, table).read) throw forbidden()
+  // the automatic check's score, for admins and scripted videos only
+  const withScore = kind === 'script' && isAdmin(role)
 
   if (status !== undefined && !STATUSES.includes(status as string)) {
     throw invalid(`status must be one of: ${STATUSES.join(', ')}`, 'status')
@@ -40,6 +48,7 @@ videosRouter.get('/videos', async (req, res) => {
   }
   const orderBy = SORTS[String(sort)]
   if (!orderBy) throw invalid(`sort must be one of: ${Object.keys(SORTS).join(', ')}`, 'sort')
+  if (SCORE_SORTS.has(String(sort)) && !withScore) throw invalid('Only admins can sort scripted videos by score', 'sort')
   const pageSize = wholeNumber(limit, 'limit', 1)
   const skip = wholeNumber(offset, 'offset', 0)
 
@@ -66,9 +75,10 @@ videosRouter.get('/videos', async (req, res) => {
 
   // an AI video names its script as plain text and is not linked to one
   const scriptColumns = kind === 'ai' ? 'v.text_version, NULL AS script_id' : 'v.text_version, v.script_id'
+  const scoreColumns = withScore ? ', v.score, v.score_status' : ''
   const [page, byStatus] = await batch([
     sql(
-      `SELECT v.id, v.video_name, v.format, ${scriptColumns}, v.status, v.creative_link, v.notes, v.created_at,
+      `SELECT v.id, v.video_name, v.format, ${scriptColumns}, v.status, v.creative_link, v.notes, v.created_at${scoreColumns},
               v.editor_id, u.name AS editor_name, v.product_id, p.product_name
        FROM ${table} v
        LEFT JOIN users u ON u.id = v.editor_id
@@ -106,6 +116,7 @@ videosRouter.get('/videos', async (req, res) => {
       productId: row.product_id,
       productName: row.product_name,
       scriptId: row.script_id,
+      ...(withScore && { score: row.score, scoreStatus: row.score_status }),
     })),
     // rows matching every filter, for the pager
     total: status ? counts[status as string] : all,
@@ -113,4 +124,16 @@ videosRouter.get('/videos', async (req, res) => {
     limit: pageSize,
     offset: skip,
   })
+})
+
+// POST /videos/{id}/check -> runs the automatic check again on the video's current file. Admins only.
+videosRouter.post('/videos/:id/check', async (req, res) => {
+  if (!isAdmin(currentUser(res).role)) throw forbidden()
+  const { id } = req.params
+  const [video] = await rows(sql('SELECT creative_link, creative_link_updated_at AS at FROM videos WHERE id = ?', id))
+  if (!video) throw notFound(`Video ${id}`)
+  if (!video.creative_link) throw invalid('The video has no file to check')
+  await resetScore(id, true).run()
+  await startCheck(id, video.at as string | null)
+  res.status(202).json({ success: true })
 })

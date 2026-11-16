@@ -34,6 +34,12 @@
       "name": "ops-dashboard-image-generation",
       "binding": "IMAGE_GENERATION",
       "class_name": "ImageGenerationWorkflow"
+    },
+    // the automatic check after each video upload (src/scoring/workflow.ts)
+    {
+      "name": "ops-dashboard-video-check",
+      "binding": "VIDEO_CHECK",
+      "class_name": "VideoCheckWorkflow"
     }
   ],
   "r2_buckets": [
