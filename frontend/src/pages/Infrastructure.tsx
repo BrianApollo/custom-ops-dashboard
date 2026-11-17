@@ -1,12 +1,13 @@
-import { KeyRound, LogIn, RefreshCw, Search } from 'lucide-react'
+import { KeyRound, LogIn, RefreshCw, Search, X } from 'lucide-react'
 import { Label, Switch, ToggleGroup } from 'radix-ui'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../auth'
 import { DetailsPanel } from '../components/infrastructure/DetailsPanel'
+import { ItemActionsProvider, type ItemActions } from '../components/infrastructure/ItemMenu'
 import { useFacebookLogin, type ConnectResult, type SystemUserConnectResult } from '../components/infrastructure/facebookLogin'
 import { Map as InfrastructureMap } from '../components/infrastructure/Map'
 import { MasterProfile } from '../components/infrastructure/MasterProfile'
-import { buildTree,itemKey, KINDS, useInfrastructure, type Kind } from '../components/infrastructure/model'
+import { buildTree, itemKey, KINDS, relatedKeys, useInfrastructure, type Item, type Kind } from '../components/infrastructure/model'
 import { Tree } from '../components/infrastructure/Tree'
 import { button, Tip } from '../components/ui'
 import { api, ApiError } from '../lib/api'
@@ -45,13 +46,51 @@ function AdminInfrastructure() {
   const [showHidden, setShowHidden] = useState(false)
   // the picture of everything and its links, or the nested list; the choice is remembered
   const [view, setView] = useState(() => (localStorage.getItem(VIEW_KEY) === 'list' ? 'list' : 'map'))
-  const [selectedKey, setSelectedKey] = useState<string>()
+  // a click focuses a record: only it and what it is connected to stay on screen
+  const [focusKey, setFocusKey] = useState<string>()
+  // the record opened with More info, in the sidebar
+  const [detailsKey, setDetailsKey] = useState<string>()
+  // bumped by the menu's Sync, which the sidebar then runs
+  const [syncRequest, setSyncRequest] = useState<number>()
+  const [actionError, setActionError] = useState<string>()
   const [connecting, setConnecting] = useState(false)
   const [connected, setConnected] = useState<{ result?: ConnectResult; error?: string }>()
   const [connectingSystemUser, setConnectingSystemUser] = useState(false)
   const [systemUser, setSystemUser] = useState<{ result?: SystemUserConnectResult; error?: string }>()
 
-  const tree = useMemo(() => data && buildTree(data, search, showHidden), [data, search, showHidden])
+  const focused = focusKey ? data?.byKey.get(focusKey) : undefined
+  const focus = useMemo(() => (data && focused ? relatedKeys(data, focused.key) : undefined), [data, focused])
+  const tree = useMemo(() => data && buildTree(data, search, showHidden, focus), [data, search, showHidden, focus])
+  // clicking the focused record again shows everything again
+  const toggleFocus = (key: string) => setFocusKey((before) => (before === key ? undefined : key))
+
+  // Esc lets go of the focus; while the sidebar is open, Esc closes that first
+  useEffect(() => {
+    if (!focusKey || detailsKey) return
+    const onKey = (event: KeyboardEvent) => event.key === 'Escape' && setFocusKey(undefined)
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [focusKey, detailsKey])
+
+  const actions: ItemActions = {
+    openDetails: (key) => {
+      setSyncRequest(undefined)
+      setDetailsKey(key)
+    },
+    sync: (key) => {
+      setDetailsKey(key)
+      setSyncRequest(Date.now())
+    },
+    toggleHidden: (item: Item) => {
+      setActionError(undefined)
+      api(`/data/${KINDS[item.kind].table}/${item.id}`, { method: 'PATCH', body: { fields: { Hidden: !item.hidden } } })
+        .then(reload)
+        .catch((err: unknown) => {
+          if (err instanceof ApiError && err.status === 401) expire()
+          else setActionError(`Could not ${item.hidden ? 'unhide' : 'hide'} ${item.name}: ${(err as Error).message}`)
+        })
+    },
+  }
   const hiddenCount = data ? LISTS.reduce((sum, { list }) => sum + data[list].filter((item) => item.hidden).length, 0) : 0
 
   // The login popup, then the server swaps the short-lived token for a stored
@@ -70,7 +109,7 @@ function AdminInfrastructure() {
       const result = await connect()
       setConnected({ result })
       // its details open as soon as the reloaded list holds it
-      setSelectedKey(itemKey('profile', result.profileId))
+      setDetailsKey(itemKey('profile', result.profileId))
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) expire()
       else setConnected({ error: (err as Error).message })
@@ -89,7 +128,7 @@ function AdminInfrastructure() {
       const result = await api<SystemUserConnectResult>('/facebook/connect-system-user', { method: 'POST', body: { code } })
       reload()
       setSystemUser({ result })
-      setSelectedKey(itemKey('bm', result.bmRecordId))
+      setDetailsKey(itemKey('bm', result.bmRecordId))
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) expire()
       else setSystemUser({ error: (err as Error).message })
@@ -99,33 +138,35 @@ function AdminInfrastructure() {
   }
 
   return (
-    <>
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Infrastructure</h1>
-          <p className="mt-1 text-sm text-neutral-600">Facebook profiles, their Business Managers, ad accounts, pixels and pages.</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Tip label="Refresh">
-            <button onClick={reload} disabled={loading} aria-label="Refresh" className={button.icon}>
-              <RefreshCw className={`size-4 ${loading ? 'animate-spin' : ''}`} />
-            </button>
-          </Tip>
-          <Tip label={facebook.problem ?? 'Sign in to Facebook to add a profile or renew its token'}>
-            <button onClick={connectFromPage} disabled={!facebook.ready || connecting} className={button.primary}>
-              <LogIn className="size-4" />
-              {connecting ? 'Waiting for Facebook…' : 'Connect Facebook'}
-            </button>
-          </Tip>
-          {facebook.systemUserReady && (
-            <Tip label="Sign in as an admin of a business portfolio to store its system user token on that Business Manager">
-              <button onClick={connectSystemUserFromPage} disabled={connecting || connectingSystemUser} className={button.secondary}>
-                <KeyRound className="size-4" />
-                {connectingSystemUser ? 'Waiting for Facebook…' : 'Connect system user'}
+    <ItemActionsProvider value={actions}>
+      {/* on wide screens the page makes room for the sidebar instead of sitting under it */}
+      <div className={detailsKey ? 'lg:pr-[28rem]' : ''}>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">Infrastructure</h1>
+            <p className="mt-1 text-sm text-neutral-600">Facebook profiles, their Business Managers, ad accounts, pixels and pages.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Tip label="Refresh">
+              <button onClick={reload} disabled={loading} aria-label="Refresh" className={button.icon}>
+                <RefreshCw className={`size-4 ${loading ? 'animate-spin' : ''}`} />
               </button>
             </Tip>
-          )}
-        </div>
+            <Tip label={facebook.problem ?? 'Sign in to Facebook to add a profile or renew its token'}>
+              <button onClick={connectFromPage} disabled={!facebook.ready || connecting} className={button.primary}>
+                <LogIn className="size-4" />
+                {connecting ? 'Waiting for Facebook…' : 'Connect Facebook'}
+              </button>
+            </Tip>
+            {facebook.systemUserReady && (
+              <Tip label="Sign in as an admin of a business portfolio to store its system user token on that Business Manager">
+                <button onClick={connectSystemUserFromPage} disabled={connecting || connectingSystemUser} className={button.secondary}>
+                  <KeyRound className="size-4" />
+                  {connectingSystemUser ? 'Waiting for Facebook…' : 'Connect system user'}
+                </button>
+              </Tip>
+            )}
+          </div>
       </div>
 
       {facebook.problem && (
@@ -159,7 +200,7 @@ function AdminInfrastructure() {
         </p>
       )}
 
-      {data && <MasterProfile data={data} onChanged={reload} onSelect={setSelectedKey} />}
+      {data && <MasterProfile data={data} onChanged={reload} onSelect={actions.openDetails} />}
 
       <div className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-2">
         <div className="relative min-w-56 flex-1 sm:max-w-sm">
@@ -213,6 +254,25 @@ function AdminInfrastructure() {
         </ToggleGroup.Root>
       </div>
 
+      {actionError && (
+        <p role="alert" className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-800">
+          {actionError}
+        </p>
+      )}
+
+      {focused && (
+        <div role="status" className="mt-4 flex flex-wrap items-center gap-2 rounded-md bg-blue-50 px-3 py-2 text-sm text-blue-900">
+          <span>
+            Showing only what is connected to {KINDS[focused.kind].label.toLowerCase()} <strong className="font-semibold">{focused.name}</strong>.
+            Click it again or press Esc to show everything.
+          </span>
+          <button onClick={() => setFocusKey(undefined)} className={`${button.secondary} ml-auto`}>
+            <X className="size-4" />
+            Show all
+          </button>
+        </div>
+      )}
+
       {data && (
         <p className="mt-4 text-sm text-neutral-600" aria-live="polite">
           {LISTS.map(({ kind, list }) => `${data[list].length.toLocaleString()} ${KINDS[kind].plural.toLowerCase()}`).join(' · ')}
@@ -238,23 +298,26 @@ function AdminInfrastructure() {
                 : 'No profiles yet. Connect a Facebook login to add the first one.'}
           </p>
         ) : view === 'map' ? (
-          <InfrastructureMap data={data} search={search} showHidden={showHidden} selectedKey={selectedKey} onSelect={setSelectedKey} />
+          <InfrastructureMap data={data} search={search} showHidden={showHidden} focus={focus} selectedKey={focusKey} onSelect={toggleFocus} />
         ) : (
-          <Tree data={data} tree={tree} selectedKey={selectedKey} onSelect={setSelectedKey} searching={search.trim() !== ''} />
+          <Tree data={data} tree={tree} selectedKey={focusKey} onSelect={toggleFocus} searching={search.trim() !== ''} />
         )}
+      </div>
+
       </div>
 
       {data && (
         <DetailsPanel
-          item={selectedKey ? data.byKey.get(selectedKey) : undefined}
+          item={detailsKey ? data.byKey.get(detailsKey) : undefined}
           data={data}
-          onClose={() => setSelectedKey(undefined)}
-          onSelect={setSelectedKey}
+          onClose={() => setDetailsKey(undefined)}
+          onSelect={actions.openDetails}
           onChanged={reload}
           facebook={facebook}
           connect={connect}
+          syncRequest={syncRequest}
         />
       )}
-    </>
+    </ItemActionsProvider>
   )
 }

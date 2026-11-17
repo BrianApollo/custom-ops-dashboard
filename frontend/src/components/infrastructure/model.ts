@@ -76,12 +76,13 @@ export const KINDS: Record<Kind, KindMeta> = {
   },
 }
 
-// Which fields link one kind to another. Both the many-to-many link and the
-// owner link count, so nothing owned is missing from its business manager.
+// Which fields link one kind to another. For pixels both the many-to-many link
+// and the owner link count. An ad account is linked only to the business managers
+// a synced profile reaches it through; its owner is shown on the row instead.
 const LINKS: Record<Kind, Partial<Record<Kind, string[]>>> = {
   profile: { bm: ['Linked BM'], page: ['Linked Pages'] },
-  bm: { profile: ['Linked Profile'], adAccount: ['Linked Ad Accs', 'Ad Accounts'], pixel: ['Linked Pixels', 'Owned Pixels'] },
-  adAccount: { bm: ['Owner BM', 'Linked BM'] },
+  bm: { profile: ['Linked Profile'], adAccount: ['Linked Ad Accs'], pixel: ['Linked Pixels', 'Owned Pixels'] },
+  adAccount: { bm: ['Linked BM'] },
   page: { profile: ['Linked Profiles'] },
   pixel: { bm: ['Owner BM', 'Linked BMs'] },
 }
@@ -205,6 +206,44 @@ export function linked(data: Data, item: Item, kind: Kind): Item[] {
   return [...ids].flatMap((id) => data.byKey.get(itemKey(kind, id)) ?? []).sort((a, b) => a.name.localeCompare(b.name))
 }
 
+// How far down the chain each kind sits: page → profile → business manager → ad account or pixel
+const LAYER: Record<Kind, number> = { page: 0, profile: 1, bm: 2, adAccount: 3, pixel: 3 }
+
+// Everything a record reaches through that chain, in both directions but never
+// doubling back: a profile reaches its pages, its business managers and every ad
+// account and pixel those hold; an ad account reaches the business managers that
+// hold it, the profiles with access to them, and their pages. Includes the record.
+export function relatedKeys(data: Data, key: string): Set<string> {
+  const start = data.byKey.get(key)
+  const keys = new Set([key])
+  if (!start) return keys
+  for (const direction of [1, -1]) {
+    let frontier = [start]
+    while (frontier.length) {
+      const next: Item[] = []
+      for (const item of frontier) {
+        for (const kind of Object.keys(LINKS[item.kind]) as Kind[]) {
+          if (Math.sign(LAYER[kind] - LAYER[item.kind]) !== direction) continue
+          for (const other of linked(data, item, kind)) {
+            if (keys.has(other.key)) continue
+            keys.add(other.key)
+            next.push(other)
+          }
+        }
+      }
+      frontier = next
+    }
+  }
+  return keys
+}
+
+// the business manager that owns an ad account; none for a personal account or one not synced yet
+export function ownerOf(data: Data, account: Item): Item | undefined {
+  const value = account.record.fields['Owner BM'] as string[] | string | undefined
+  const id = Array.isArray(value) ? value[0] : value
+  return id ? data.byKey.get(itemKey('bm', id)) : undefined
+}
+
 // the kinds an item of each kind links to, in the order the details panel lists them
 export const RELATED: Record<Kind, Kind[]> = {
   profile: ['bm', 'page'],
@@ -237,9 +276,10 @@ export interface Tree {
 // accounts and pixels. A search keeps a record that matches along with
 // everything under it, and the path down to any match further in. Whatever
 // sits under a hidden record is hidden with it.
-export function buildTree(data: Data, search: string, showHidden: boolean): Tree {
+export function buildTree(data: Data, search: string, showHidden: boolean, focus?: Set<string>): Tree {
   const words = searchWords(search)
-  const shown = (item: Item) => showHidden || !item.hidden
+  // while one record is focused, only it and what it is connected to are shown
+  const shown = (item: Item) => (showHidden || !item.hidden) && (!focus || focus.has(item.key))
   const hit = (item: Item) => words.every((word) => item.haystack.includes(word))
   // `all`: something above matched, so the whole list stays
   const leaves = (items: Item[], all: boolean) => items.filter((item) => shown(item) && (all || hit(item)))
@@ -258,8 +298,13 @@ export function buildTree(data: Data, search: string, showHidden: boolean): Tree
   })
 
   const alone = (items: Item[], parent: Kind) => items.filter((item) => linked(data, item, parent).length === 0)
+  const ownsAccounts = (bm: Item) => ((bm.record.fields['Ad Accounts'] as string[] | undefined) ?? []).length > 0
   const unlinked = {
-    bms: bmNodes(alone(data.bms, 'profile'), false),
+    // a business manager kept only to name an ad account's owner is not listed on its own
+    bms: bmNodes(
+      alone(data.bms, 'profile').filter((bm) => linked(data, bm, 'adAccount').length + linked(data, bm, 'pixel').length > 0 || !ownsAccounts(bm)),
+      false,
+    ),
     adAccounts: leaves(alone(data.adAccounts, 'bm'), false),
     pixels: leaves(alone(data.pixels, 'bm'), false),
     pages: leaves(alone(data.pages, 'profile'), false),

@@ -174,7 +174,7 @@ const otherPosition = (field: Junction) => `position_in_${field.otherColumn.repl
 // Makes the junction rows for one record match `ids`, in that order. A link
 // that already exists keeps its place in the other record's list; a new one
 // goes to the end of it. Two statements whatever the number of ids.
-function linkStatements(field: Junction, id: string, ids: string[], isNew: boolean) {
+export function linkStatements(field: Junction, id: string, ids: string[], isNew: boolean) {
   const { table, selfColumn, otherColumn, positionColumn } = field
   const statements: D1PreparedStatement[] = []
   if (!isNew) {

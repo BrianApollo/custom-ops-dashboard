@@ -1,13 +1,18 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { matchesSearch } from '../../lib/search'
-import { KINDS, linked, statusTone, type Data, type Item, type Kind, type Tone } from './model'
+import { KINDS, linked, ownerOf, statusTone, type Data, type Item, type Kind, type Tone } from './model'
+import { ItemMenu } from './ItemMenu'
 import { Badge } from './parts'
 
 interface Props {
   data: Data
   search: string
   showHidden: boolean
+  // the focused record and everything connected to it; the rest is not drawn
+  focus?: Set<string>
+  // the focused record
   selectedKey?: string
+  // a click on a card
   onSelect: (key: string) => void
 }
 
@@ -44,8 +49,9 @@ const GROUP_TONE: Record<Kind, string> = {
 
 // The whole setup as one picture: ad accounts on the left, pixels on the right, and pages,
 // profiles and business managers down the middle, with a line for every link between them.
-// Pointing at a card picks out what it is connected to.
-export function Map({ data, search, showHidden, selectedKey, onSelect }: Props) {
+// Pointing at a card picks out what it is connected to; clicking one leaves only that
+// (`focus`), and right-clicking one opens its menu.
+export function Map({ data, search, showHidden, focus: kept, selectedKey, onSelect }: Props) {
   const container = useRef<HTMLDivElement>(null)
   const cards = useRef(new globalThis.Map<string, HTMLElement>())
   const [lines, setLines] = useState<Line[]>([])
@@ -54,7 +60,8 @@ export function Map({ data, search, showHidden, selectedKey, onSelect }: Props) 
 
   const term = search.trim().toLowerCase()
   const { shown, edges } = useMemo(() => {
-    const visible = (items: Item[]) => items.filter((item) => (showHidden || !item.hidden) && matchesSearch(term, item.haystack))
+    const visible = (items: Item[]) =>
+      items.filter((item) => (showHidden || !item.hidden) && (!kept || kept.has(item.key)) && matchesSearch(term, item.haystack))
     const shown: Record<Kind, Item[]> = {
       adAccount: visible(data.adAccounts),
       page: visible(data.pages),
@@ -74,7 +81,7 @@ export function Map({ data, search, showHidden, selectedKey, onSelect }: Props) 
       for (const pixel of linked(data, bm, 'pixel')) link(bm, pixel, 'across')
     }
     return { shown, edges }
-  }, [data, term, showHidden])
+  }, [data, term, showHidden, kept])
 
   // The lines are drawn from where the cards actually ended up, so they are measured
   // after every layout and again whenever the picture changes size.
@@ -146,27 +153,35 @@ export function Map({ data, search, showHidden, selectedKey, onSelect }: Props) 
   function card(item: Item) {
     const Icon = KINDS[item.kind].icon
     const dimmed = related && !related.has(item.key)
+    const owner = item.kind === 'adAccount' ? ownerOf(data, item) : undefined
     return (
-      <button
-        key={item.key}
-        ref={(element) => {
-          if (element) cards.current.set(item.key, element)
-          else cards.current.delete(item.key)
-        }}
-        onClick={() => onSelect(item.key)}
-        onMouseEnter={() => setPointed(item.key)}
-        onMouseLeave={() => setPointed(undefined)}
-        onFocus={() => setPointed(item.key)}
-        onBlur={() => setPointed(undefined)}
-        aria-label={`${KINDS[item.kind].label} ${item.name}, open details`}
-        className={`flex w-32 flex-col items-center gap-1 rounded-md border border-l-4 border-neutral-200 bg-white px-2 py-2 text-center text-xs shadow-sm transition-opacity hover:border-neutral-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 ${EDGE_TONE[item.status ? statusTone(item.status) : 'neutral']} ${selectedKey === item.key ? 'ring-2 ring-blue-700' : ''} ${dimmed ? 'opacity-30' : ''} ${item.hidden ? 'border-dashed' : ''}`}
-      >
-        <Icon className="size-4 text-neutral-500" />
-        <span className="w-full truncate font-medium" title={item.name}>
-          {item.name}
-        </span>
-        {item.status && <Badge tone={statusTone(item.status)}>{item.status}</Badge>}
-      </button>
+      <ItemMenu key={item.key} item={item}>
+        <button
+          ref={(element) => {
+            if (element) cards.current.set(item.key, element)
+            else cards.current.delete(item.key)
+          }}
+          onClick={() => onSelect(item.key)}
+          onMouseEnter={() => setPointed(item.key)}
+          onMouseLeave={() => setPointed(undefined)}
+          onFocus={() => setPointed(item.key)}
+          onBlur={() => setPointed(undefined)}
+          aria-label={`${KINDS[item.kind].label} ${item.name}${owner ? `, owned by ${owner.name}` : ''}, show only what it is connected to`}
+          aria-pressed={selectedKey === item.key}
+          className={`flex w-32 flex-col items-center gap-1 rounded-md border border-l-4 border-neutral-200 bg-white px-2 py-2 text-center text-xs shadow-sm transition-opacity hover:border-neutral-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 ${EDGE_TONE[item.status ? statusTone(item.status) : 'neutral']} ${selectedKey === item.key ? 'ring-2 ring-blue-700' : ''} ${dimmed ? 'opacity-30' : ''} ${item.hidden ? 'border-dashed' : ''}`}
+        >
+          <Icon className="size-4 text-neutral-500" />
+          <span className="w-full truncate font-medium" title={item.name}>
+            {item.name}
+          </span>
+          {owner && (
+            <span className="w-full truncate text-[11px] text-neutral-500" title={`Owned by ${owner.name}`}>
+              owned by {owner.name}
+            </span>
+          )}
+          {item.status && <Badge tone={statusTone(item.status)}>{item.status}</Badge>}
+        </button>
+      </ItemMenu>
     )
   }
 

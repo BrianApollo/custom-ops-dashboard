@@ -2,11 +2,11 @@ import type { FieldMapping } from '@ops/shared'
 import { Router } from 'express'
 import { currentUser } from '../auth/session'
 import { getTable } from '../data/registry'
-import { appendLinkStatement } from '../data/write'
+import { appendLinkStatement, linkStatements } from '../data/write'
 import { auditStatement } from '../lib/audit'
 import { batch, IN_LIST, list, nowIso, rows, sql } from '../lib/d1'
 import { notFound } from '../lib/errors'
-import type { FbObject } from '../lib/facebook'
+import { FacebookClient, type FbObject } from '../lib/facebook'
 import { recordId } from '../lib/ids'
 import { withCredential } from './credentials'
 
@@ -17,9 +17,33 @@ const link = (table: string, field: string) => getTable(table).fields.get(field)
 
 // each link is added from the child's side, as the dashboard has always done
 const BM_PROFILES = link('business_managers', 'Linked Profile')
-const AD_ACCOUNT_BMS = link('ad_accounts', 'Linked BM')
 const PIXEL_BMS = link('pixels', 'Linked BMs')
 const PAGE_PROFILES = link('pages', 'Linked Profiles')
+// replaced whole from the business manager's side, since Facebook gives its full list
+const BM_AD_ACCOUNTS = link('business_managers', 'Linked Ad Accs')
+
+const ACCOUNT_FIELDS = 'id,name,account_status,currency,amount_spent,timezone_name,business{id,name}'
+const fbAccountId = (account: FbObject) => String(account.id).replace(/^act_/, '')
+
+// A Business Manager's own ad accounts and the ones partners share with it, read
+// with the profile's token. A profile that may not see them, such as an employee
+// of the business, is retried with the business's system user token when one is stored.
+async function bmAccounts(client: FacebookClient, bmId: string) {
+  const read = (c: FacebookClient) =>
+    Promise.all([
+      c.list(`${bmId}/owned_ad_accounts`, { fields: ACCOUNT_FIELDS, limit: 200 }),
+      c.list(`${bmId}/client_ad_accounts`, { fields: ACCOUNT_FIELDS, limit: 200 }),
+    ])
+  try {
+    return await read(client)
+  } catch (error) {
+    const [row] = await rows(
+      sql(`SELECT system_user_token AS token FROM business_managers WHERE bm_id = ? AND system_user_token != '' LIMIT 1`, bmId),
+    )
+    if (!row?.token) throw error
+    return await read(new FacebookClient(row.token as string))
+  }
+}
 
 const AD_ACCOUNT_STATUS: Record<number, string> = {
   1: 'ACTIVE',
@@ -51,8 +75,13 @@ async function recordIds(table: string, keyColumn: string, facebookIds: string[]
 
 // POST /profiles/{id}/sync
 // Reads the profile's business managers, ad accounts, pixels and pages from
-// Facebook and brings the four tables up to date. Names are set when a row is
-// created and left alone afterwards, since people rename them in the dashboard.
+// Facebook and brings the four tables up to date. Names follow Facebook: a
+// Business Manager, ad account or page renamed there is renamed here too.
+//
+// Each ad account gets its owner (owner_bm_id, empty for a personal account).
+// An ad account is linked only to the profile's own Business Managers that hold
+// it, owned or shared in by a partner; its owner is not linked unless the
+// profile belongs to it too.
 syncRouter.post('/profiles/:id/sync', async (req, res) => {
   const profileId = req.params.id
   const [profile] = await rows(sql('SELECT id FROM profiles WHERE id = ?', profileId))
@@ -84,16 +113,32 @@ syncRouter.post('/profiles/:id/sync', async (req, res) => {
     ).run()
     log.push({ message: `Connected as ${me.name}`, level: 'info' })
 
-    // ad accounts are read from the profile, not from each business manager:
-    // /{bm}/owned_ad_accounts fails for accounts the profile is not an admin of
+    // the accounts the profile can use, and each of its business managers' own and shared lists
     const [businesses, pages, accounts] = await Promise.all([
       client.list('me/businesses', { fields: 'id,name,verification_status,permitted_roles', limit: 100 }),
       client.list('me/accounts', { fields: 'id,name,is_published,fan_count,link', limit: 100 }),
-      client.list('me/adaccounts', {
-        fields: 'id,name,account_status,currency,amount_spent,timezone_name,business{id,name}',
-        limit: 200,
-      }),
+      client.list('me/adaccounts', { fields: ACCOUNT_FIELDS, limit: 200 }),
     ])
+    // a business manager whose lists cannot be read keeps the links it had
+    const bmLists = (
+      await Promise.all(
+        businesses.map(async (business) => {
+          try {
+            const [owned, shared] = await bmAccounts(client, business.id)
+            return { business, owned, shared }
+          } catch (error) {
+            counts.errors++
+            log.push({ message: `${business.name}: could not read its ad accounts: ${(error as Error).message}`, level: 'error' })
+            return undefined
+          }
+        }),
+      )
+    ).filter((read) => read !== undefined)
+    // every ad account seen, once
+    const allAccounts = new Map<string, FbObject>()
+    for (const account of [...accounts, ...bmLists.flatMap((read) => [...read.owned, ...read.shared])]) {
+      if (!allAccounts.has(fbAccountId(account))) allAccounts.set(fbAccountId(account), account)
+    }
     const pixelLists = await Promise.all(
       accounts.map((account) =>
         client
@@ -105,7 +150,7 @@ syncRouter.post('/profiles/:id/sync', async (req, res) => {
 
     const bms = await recordIds('business_managers', 'bm_id', [
       ...businesses.map((b) => b.id as string),
-      ...accounts.flatMap((a) => (a.business?.id ? [a.business.id as string] : [])),
+      ...[...allAccounts.values()].flatMap((a) => (a.business?.id ? [a.business.id as string] : [])),
       ...pixelLists.flat().flatMap((p) => (p.owner_business?.id ? [p.owner_business.id as string] : [])),
     ])
 
@@ -123,8 +168,8 @@ syncRouter.post('/profiles/:id/sync', async (req, res) => {
                 id, b.id, b.name, status, verification, now, now, now,
               )
             : sql(
-                'UPDATE business_managers SET bm_status = ?, verification_status = ?, last_synced = ?, updated_at = ? WHERE id = ?',
-                status, verification, now, now, id,
+                'UPDATE business_managers SET bm_name = ?, bm_status = ?, verification_status = ?, last_synced = ?, updated_at = ? WHERE id = ?',
+                b.name, status, verification, now, now, id,
               ),
           appendLinkStatement(BM_PROFILES, id, [profileId]),
         ]
@@ -134,32 +179,56 @@ syncRouter.post('/profiles/:id/sync', async (req, res) => {
       log.push({ message: `Found ${businesses.length} Business Manager(s)`, level: 'success' })
     })
 
-    const accountIds = await recordIds('ad_accounts', 'ad_acc_id', accounts.map((a) => String(a.id).replace(/^act_/, '')))
+    const accountIds = await recordIds('ad_accounts', 'ad_acc_id', [...allAccounts.keys()])
     await step('Ad Accounts', async () => {
-      const statements = accounts.flatMap((a) => {
-        const fb = String(a.id).replace(/^act_/, '')
+      // an owner the profile does not belong to is kept as a bare record, so the
+      // account can name it; it is not linked to the profile or marked synced
+      const owners = new Map<string, string>()
+      for (const a of allAccounts.values()) if (a.business?.id) owners.set(a.business.id, a.business.name ?? '')
+      const ownerStatements = [...owners].flatMap(([bmId, name]) => {
+        if (businesses.some((b) => b.id === bmId)) return []
+        if (bms.isNew(bmId)) {
+          return [
+            sql(
+              'INSERT INTO business_managers (id, bm_id, bm_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+              bms.idOf(bmId), bmId, name || null, now, now,
+            ),
+          ]
+        }
+        return name ? [sql('UPDATE business_managers SET bm_name = ?, updated_at = ? WHERE id = ?', name, now, bms.idOf(bmId))] : []
+      })
+
+      const accountStatements = [...allAccounts].map(([fb, a]) => {
         const fresh = accountIds.isNew(fb)
         const id = accountIds.idOf(fb)
         const status = AD_ACCOUNT_STATUS[a.account_status] ?? 'Unknown'
         const spent = a.amount_spent === undefined ? null : Number(a.amount_spent) / 100
-        const bm = bms.find(a.business?.id)
-        return [
-          fresh
-            ? sql(
-                `INSERT INTO ad_accounts (id, ad_acc_id, ad_acc_name, ad_acc_status, currency, amount_spent, timezone, last_synced, created_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                id, fb, a.name, status, a.currency ?? null, spent, a.timezone_name ?? null, now, now, now,
-              )
-            : sql(
-                'UPDATE ad_accounts SET ad_acc_status = ?, currency = ?, amount_spent = ?, timezone = ?, last_synced = ?, updated_at = ? WHERE id = ?',
-                status, a.currency ?? null, spent, a.timezone_name ?? null, now, now, id,
-              ),
-          ...(bm ? [appendLinkStatement(AD_ACCOUNT_BMS, id, [bm])] : []),
-        ]
+        const owner = bms.find(a.business?.id) ?? null
+        return fresh
+          ? sql(
+              `INSERT INTO ad_accounts (id, ad_acc_id, ad_acc_name, ad_acc_status, currency, amount_spent, timezone, owner_bm_id, last_synced, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              id, fb, a.name, status, a.currency ?? null, spent, a.timezone_name ?? null, owner, now, now, now,
+            )
+          : sql(
+              `UPDATE ad_accounts SET ad_acc_name = ?, ad_acc_status = ?, currency = ?, amount_spent = ?, timezone = ?, owner_bm_id = ?,
+                 last_synced = ?, updated_at = ? WHERE id = ?`,
+              a.name, status, a.currency ?? null, spent, a.timezone_name ?? null, owner, now, now, id,
+            )
       })
+
+      // each business manager read is linked to exactly what Facebook lists for it
+      const linkLines = bmLists.flatMap(({ business, owned, shared }) =>
+        linkStatements(BM_AD_ACCOUNTS, bms.idOf(business.id), [...owned, ...shared].map((a) => accountIds.idOf(fbAccountId(a))), false),
+      )
+
+      const statements = [...ownerStatements, ...accountStatements, ...linkLines]
       if (statements.length) await batch(statements)
-      counts.adAccounts = accounts.length
-      log.push({ message: `Found ${accounts.length} Ad Account(s)`, level: 'success' })
+      counts.adAccounts = allAccounts.size
+      log.push({ message: `Found ${allAccounts.size} Ad Account(s), ${accounts.length} of them usable by this profile`, level: 'success' })
+      for (const { business, owned, shared } of bmLists) {
+        log.push({ message: `${business.name}: ${owned.length} owned, ${shared.length} shared by partners`, level: 'info' })
+      }
     })
 
     await step('Pixels', async () => {
@@ -210,8 +279,8 @@ syncRouter.post('/profiles/:id/sync', async (req, res) => {
                 id, p.id, p.name, published, p.fan_count ?? null, p.link ?? null, now, now, now,
               )
             : sql(
-                'UPDATE pages SET published = ?, fan_count = ?, page_link = ?, last_synced = ?, updated_at = ? WHERE id = ?',
-                published, p.fan_count ?? null, p.link ?? null, now, now, id,
+                'UPDATE pages SET page_name = ?, published = ?, fan_count = ?, page_link = ?, last_synced = ?, updated_at = ? WHERE id = ?',
+                p.name, published, p.fan_count ?? null, p.link ?? null, now, now, id,
               ),
           appendLinkStatement(PAGE_PROFILES, id, [profileId]),
         ]

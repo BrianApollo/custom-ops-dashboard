@@ -1,11 +1,11 @@
 import { Check, Copy, ExternalLink, Eye, EyeOff, KeyRound, LogIn, Pencil, RefreshCw, ShieldCheck, Star, X } from 'lucide-react'
 import { Dialog, Label } from 'radix-ui'
-import { useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useAuth } from '../../auth'
 import { api, ApiError, text } from '../../lib/api'
 import { button, input, Tip } from '../ui'
 import type { ConnectResult, FacebookLogin } from './facebookLogin'
-import { daysUntil, KINDS, linked, RELATED, tokenState, when, type Data, type Item } from './model'
+import { daysUntil, KINDS, linked, ownerOf, RELATED, tokenState, when, type Data, type Item } from './model'
 import { ItemBadges, ItemButton } from './parts'
 
 interface Notice {
@@ -27,15 +27,22 @@ interface PanelProps {
   facebook: FacebookLogin
   // runs the Facebook login and stores the token; the page owns it
   connect: () => Promise<ConnectResult>
+  // a sync asked for from the right-click menu; each request has its own number, so asking again runs again
+  syncRequest?: number
 }
 
-// The selected record, as a sheet on the right. It stays open while its lists reload.
+// The record opened with More info, as a sidebar on the right. It does not cover the
+// page: the map and list stay usable beside it, and only its own close button or Esc
+// shuts it. It stays open while its lists reload.
 export function DetailsPanel({ item, ...props }: PanelProps & { item: Item | undefined }) {
   return (
-    <Dialog.Root open={Boolean(item)} onOpenChange={(open) => !open && props.onClose()}>
+    <Dialog.Root modal={false} open={Boolean(item)} onOpenChange={(open) => !open && props.onClose()}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/30" />
-        <Dialog.Content aria-describedby={undefined} className="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col bg-white shadow-xl outline-none">
+        <Dialog.Content
+          aria-describedby={undefined}
+          onInteractOutside={(event) => event.preventDefault()}
+          className="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col border-l border-neutral-200 bg-white shadow-xl outline-none"
+        >
           {/* a different record starts with no result showing and no form open */}
           {item && <Details key={item.key} item={item} {...props} />}
         </Dialog.Content>
@@ -79,7 +86,7 @@ interface Fact {
   href?: string
 }
 
-function facts(item: Item): Fact[] {
+function facts(data: Data, item: Item): Fact[] {
   const { record } = item
   const field = (label: string, name: string): Fact => ({ label, value: text(record, name) })
   const time = (label: string, name: string): Fact => ({ label, value: when(text(record, name)) })
@@ -88,6 +95,7 @@ function facts(item: Item): Fact[] {
     profile: [field('Email', 'Profile Email'), link('Profile link', 'Profile Link'), field('Review date', 'Profile Review Date')],
     bm: [field('Verification', 'Verification Status'), field('System user ID', 'System User ID')],
     adAccount: [
+      { label: 'Owner BM', value: ownerOf(data, item)?.name ?? '' },
       field('Currency', 'Currency'),
       field('Timezone', 'Timezone'),
       {
@@ -113,7 +121,7 @@ function facts(item: Item): Fact[] {
 // only http(s) links are made clickable: these values are typed in by people
 const safeHref = (href: string | undefined) => (href && /^https?:\/\//i.test(href) ? href : undefined)
 
-function Details({ item, data, onClose, onSelect, onChanged, facebook, connect }: PanelProps & { item: Item }) {
+function Details({ item, data, onClose, onSelect, onChanged, facebook, connect, syncRequest }: PanelProps & { item: Item }) {
   const { expire } = useAuth()
   const meta = KINDS[item.kind]
   const Icon = meta.icon
@@ -179,6 +187,15 @@ function Details({ item, data, onClose, onSelect, onChanged, facebook, connect }
         lines: res.log.map((entry) => ({ text: entry.message, bad: entry.level === 'error' })),
       }
     })
+
+  // a sync asked for from the right-click menu runs once, here, so its result shows above
+  const handledSync = useRef<number | undefined>(undefined)
+  useEffect(() => {
+    if (syncRequest === undefined || handledSync.current === syncRequest || item.kind !== 'profile' || !hasToken) return
+    handledSync.current = syncRequest
+    void sync()
+    // only a new request starts a sync, not a reload of the lists
+  }, [syncRequest])
 
   const checkToken = () =>
     run('check', async () => {
@@ -391,9 +408,9 @@ function Details({ item, data, onClose, onSelect, onChanged, facebook, connect }
           </div>
         )}
 
-        {facts(item).length > 0 && (
+        {facts(data, item).length > 0 && (
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
-            {facts(item).map((fact) => (
+            {facts(data, item).map((fact) => (
               <div key={fact.label} className="col-span-2 grid grid-cols-subgrid">
                 <dt className="text-neutral-500">{fact.label}</dt>
                 <dd className="min-w-0 wrap-break-word">
@@ -437,7 +454,8 @@ function Details({ item, data, onClose, onSelect, onChanged, facebook, connect }
 
             <Section title="Sync from Facebook">
               <p className="text-sm text-neutral-700">
-                Reads this profile’s Business Managers, ad accounts, pixels and pages from Facebook and updates the lists. Nothing is removed.
+                Reads this profile’s Business Managers, ad accounts, pixels and pages from Facebook and updates the lists. A Business Manager’s
+                links to ad accounts Facebook no longer lists for it are removed; no record is deleted.
               </p>
               {action('sync', 'Sync from Facebook', 'Syncing…', <RefreshCw className={`size-4 ${busy === 'sync' ? 'animate-spin' : ''}`} />, sync, !hasToken)}
               {!hasToken && <p className="text-xs text-neutral-500">Connect a Facebook login first: there is no token to sync with.</p>}

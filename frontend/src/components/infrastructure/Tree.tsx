@@ -24,7 +24,9 @@ export function Tree({ data, tree, selectedKey, onSelect, searching }: TreeProps
       return next
     })
 
-  const row = (item: Item) => <ItemButton data={data} item={item} selected={item.key === selectedKey} onSelect={onSelect} />
+  const row = (item: Item) => (
+    <ItemButton data={data} item={item} selected={item.key === selectedKey} onSelect={onSelect} clickLabel="show only what it is connected to" />
+  )
 
   // a row that opens to show what is under it
   const branch = (path: string, item: Item, children: ReactNode) => (
